@@ -1,0 +1,53 @@
+.venv
+.vscode
+ironghost_brain
+ironghost-core
+ironghost-kali
+ironghost-orchestrator
+ironghost-simple-client
+llama.cpp
+
+ironghost-overwatch/node_modules
+ironghost-overwatch/target
+ironghost-overwatch/Cargo.lock
+ironghost-overwatch/package-lock.json
+ironghost-overwatch/src-front/node_modules
+ironghost-overwatch/src-tauri/gen
+ironghost-overwatch/src-tauri/target
+
+ironghost-services/archive
+ironghost-services/models
+ironghost-services/ceo
+ironghost-services/agent-strategist/build
+ironghost-services/agent-strategist/.env
+ironghost-services/agent-strategist/logs
+ironghost-services/agent-coder/build
+ironghost-services/agent-coder/.env
+ironghost-services/agent-coder/logs
+ironghost-services/agent-generic/build
+ironghost-services/agent-generic/.env
+ironghost-services/agent-generic/logs
+
+# Rust / Cargo
+/target/
+
+# C++ / CMake
+/build/
+/cmake-build-*/
+*.o
+*.a
+*.so
+*.dylib
+
+# Models & Large Files (GGUF)
+*.gguf
+/models/
+
+# Environment & Local Sockets
+.env
+*.sock
+
+# Node / Svelte / Tauri
+/node_modules/
+/src-tauri/target/
+.DS_Store

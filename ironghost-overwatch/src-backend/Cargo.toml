@@ -1,0 +1,23 @@
+[package]
+name = "backend"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.37", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# For async Unix sockets:
+tokio-util = "0.7"
+
+# For timestamps:
+chrono = { version = "0.4", features = ["serde"] }
+
+# Optionnal: for logs
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# For front-end (tauri via websocket)
+tokio-tungstenite = "0.21"
+futures-util = "0.3"
