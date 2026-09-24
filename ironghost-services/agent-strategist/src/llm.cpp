@@ -1,5 +1,4 @@
 #include "llm.hpp"
-#include "utils.hpp"
 #include <iostream>
 #include <string>
 #include <vector>
@@ -68,15 +67,22 @@ LLM::LLM(
     llama_sampler_chain_add(sampler,
         llama_sampler_init_dist(sampling_params.seed));
 
-    // LLM.messages init
-    messages = {};
-    messages.push_back({"system", system_prompt.c_str()});
+    // LLM.messages and LLM.text_storage init
+    add_message("system", system_prompt);
+}
+
+void LLM::add_message(const std::string& role, const std::string& content) {
+    text_storage.push_back(role);
+    text_storage.push_back(content);
+
+    size_t sz = text_storage.size();
+    messages.push_back({ text_storage[sz - 2].c_str(), text_storage[sz - 1].c_str() });
 }
 
 std::string LLM::add_and_format_prompt(const std::string& user_prompt) {
 
     // add user_prompt to the conversation history
-    messages.push_back({"user",   user_prompt.c_str()  });
+    add_message("user", user_prompt);
 
     // prepare formatted prompt
     std::vector<char>   formatted(llama_n_ctx(ctx));
@@ -105,13 +111,17 @@ std::string LLM::add_and_format_prompt(const std::string& user_prompt) {
     // update kv_len according to new KV-cache state
     kv_len = new_len;
 
+    // debug: check
+    std::cout   << "\n=== FULL PROMPT PASSED TO TOKENIZER ===\n" 
+                << full_prompt 
+                << "\n========================================\n";
+
     return full_prompt;
 }
 
 void LLM::add_response(const std::string& response) {
-
     // add response to messages
-    messages.push_back({"assistant", strdup(response.c_str())});
+    add_message("assistant", response);
     
     // format response
     int32_t len = llama_chat_apply_template(
@@ -274,8 +284,11 @@ void LLM::reset_sampler(const SamplingParams & params) {
 }
 
 void LLM::reset_messages() {
+    text_storage.clear();
     messages.clear();
-    messages.push_back({"system", system_prompt.c_str()});
+    
+    add_message("system", system_prompt);
+
     reset_kv_cache();
 }
 

@@ -3,6 +3,7 @@
 #include <functional>
 #include <llama.h>
 #include <vector>
+#include <deque>
 
 /// @brief Struct for model sampling parameters
 /// Parameters are set with default values, so that providing user values is optional.
@@ -69,22 +70,33 @@ public:
     void reset_kv_cache();
 
 private:
+    std::string         system_prompt;
+    int32_t             n_threads;          // context parameter n_threads
+    int32_t             ctx_size_requested; // context parameter n_ctx
+    SamplingParams      sampling_params;
+
     llama_model*        model;
     const llama_vocab*  vocab;
 
     llama_sampler*      sampler;            // next token selection rule
-    SamplingParams      sampling_params;
-
+    
     llama_context*      ctx;                // for déjà-vue (embeddings, KV cache...)
-    int32_t             ctx_size_requested; // context parameter n_ctx
     int32_t             n_ctx;              // actual context size (can differ from ctx size requested)
-    int32_t             n_threads;          // context parameter n_threads
+    
+    std::string         chat_template;
+    
+    // messages management: use a double-ended queue to allocate stable memory blocks
+    std::deque<std::string>         text_storage;   // physical memory (stable addresses)
+    std::vector<llama_chat_message> messages;       // light C container for conversation history
+    
+    // KV-cache management
+    size_t              kv_len       = 0;   // nb of chars  encoded in KV-cache
+    int32_t             kv_len_token = 0;   // nb of tokens encoded in KV-cache
 
-    std::string                     chat_template;
-    std::string                     system_prompt;
-    std::vector<llama_chat_message> messages;           // conversation history
-    size_t                          kv_len       = 0;   // nb of chars  encoded in KV-cache
-    int32_t                         kv_len_token = 0;   // nb of tokens encoded in KV-cache
+    /// @brief Add a message to the conversation history
+    /// @param role 
+    /// @param content 
+    void add_message(const std::string& role, const std::string& content);
 
     /// @brief Add user prompt to conversation history and return formatted prompt
     /// @param user_prompt 

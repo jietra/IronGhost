@@ -5,9 +5,8 @@
 #include <iostream>
 #include <fstream>
 #include <unordered_map>
-#include <vector>
 
-std::unordered_map<std::string, std::string> load_env(const std::string& path) {
+static std::unordered_map<std::string, std::string> load_env(const std::string& path) {
     std::unordered_map<std::string, std::string> env;
     std::ifstream f(path);
     std::string line;
@@ -24,15 +23,22 @@ std::unordered_map<std::string, std::string> load_env(const std::string& path) {
 int main() {
     auto env = load_env("../.env"); // launched from ceo/build
 
+    std::string sys_prompt = read_file(env["SYSTEM_PROMPT"]);
+
+    std::cout << "[DEBUG] Loaded system prompt length: " << sys_prompt.size() << " chars\n";
+    if (sys_prompt.empty()) {
+        std::cerr << "[WARNING] System prompt is empty! Check file path.\n";
+    }
+
     std::cout << "MODEL_PATH=["             << env["MODEL_PATH"]             << "]\n";
-    std::cout << "SYSTEM_PROMPT=["          << env["SYSTEM_PROMPT"]          << "]\n";
+    std::cout << "SYSTEM_PROMPT=\n"         << sys_prompt << "\n";
     std::cout << "N_THREADS=["              << env["N_THREADS"]              << "]\n";
     std::cout << "N_GPU_LAYERS=["           << env["N_GPU_LAYERS"]           << "]\n";
     std::cout << "CONTEXT_SIZE_REQUESTED=[" << env["CONTEXT_SIZE_REQUESTED"] << "]\n";
 
     LLM llm(
         env["MODEL_PATH"],
-        read_file(env["SYSTEM_PROMPT"]),
+        sys_prompt,
         std::stoi(env["N_THREADS"]),
         std::stoi(env["N_GPU_LAYERS"]),
         std::stoi(env["CONTEXT_SIZE_REQUESTED"])

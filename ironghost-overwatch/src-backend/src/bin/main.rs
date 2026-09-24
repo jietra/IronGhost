@@ -1,5 +1,5 @@
 use backend::{
-    core::board::{Board, BoardMessage, BoardEvent},
+    core::board::{Board, BoardMessage},
     agents::agent::Agent,
     agents::agent_llm::AgentLLM,
 };

@@ -2,15 +2,23 @@
 #include <string>
 #include <fstream>
 #include <sstream>
+#include <iostream>
 
 inline std::string read_file(const std::string& path) {
-    std::ifstream f(path);
+    std::ifstream f(path, std::ios::in | std::ios::binary);
+    if (!f.is_open()) {
+        std::cerr << "[ERROR] Could not open file: " 
+                  << path << std::endl;
+        return "";
+    }
+    
     std::stringstream ss;
     ss << f.rdbuf();
-    return ss.str();
-}
+    std::string content = ss.str();
 
-/*
-bool is_valid_utf8(const std::string& s);
-std::string sanitize_utf8_piece(const std::string& s);
-*/
+    if (content.empty()) {
+        std::cerr << "[WARNING] File is empty: " << path << std::endl;
+    }
+
+    return content;
+}

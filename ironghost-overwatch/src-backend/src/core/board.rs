@@ -96,10 +96,7 @@ impl Board {
 }
 
 impl Mission {
-    pub fn new() -> Mission {
-        Self {
-            nodes: Vec::new(),
-            edges: Vec::new(),
-        }
+    pub fn new() -> Self {
+        Self::default()
     }
 }
