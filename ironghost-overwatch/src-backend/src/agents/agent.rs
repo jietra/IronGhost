@@ -55,13 +55,13 @@ impl Agent {
             // ignore own messages
             if msg.agent == self.name { continue; }
 
-            self.buffer.push(&format!("{}: {}", msg.agent, msg.content));
+            self.buffer.push( msg.clone() );
 
             if msg.content.contains(&format!("@{}", self.name)) {
 
                 println!("[AGENT] agent {} aknowledges tag", self.name);
 
-                let prompt    = self.buffer.flush();
+                let prompt    = self.buffer.flush(&self.name);
 
                 println!("[AGENT] sending prompt \"{}\" to llm service...", prompt);
 

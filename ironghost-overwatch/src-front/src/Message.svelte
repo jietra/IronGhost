@@ -3,16 +3,33 @@
 
   export let msg;
 
-  let parsed = { think: null, final: "" };
+  let parsed = { think: null, mission: null, final: "" };
 
   function splitMessage(raw = "") {
     if (typeof raw !== "string") raw = "";
-    const thinkMatch = raw.match( /<think>([\s\S]*?)<\/think>/ );
 
-    return {
-      think: thinkMatch ? thinkMatch[1].trim() : null,
-      final: raw.replace( /<think>[\s\S]*?<\/think>/, "" ).trim()
-    };
+    // extract <think> block
+    const thinkMatch = raw.match( /<think>([\s\S]*?)<\/think>/ );
+    const think = thinkMatch ? thinkMatch[1].trim() : null;
+
+    // extract <mission_state> block
+    const missionMatch = raw.match(/<mission_state>([\s\S]*?)<\/mission_state>/i);
+    let mission = null;
+    if (missionMatch) {
+      try {
+        mission = JSON.stringify(JSON.parse(missionMatch[1].trim()), null, 2);
+      } catch (e) {
+        mission = missionMatch[1].trim(); // raw fallback if JSON fails (or still streaming)
+      }
+    }
+
+    // cleaning for markdown parser
+    let final = raw
+      .replace(/<think>[\s\S]*?<\/think>/gi, "")
+      .replace(/<mission_state>[\s\S]*?<\/mission_state>/gi, "")
+      .trim();
+
+    return { think, mission, final };
   }
 
   $: parsed = splitMessage(msg.content || "");
@@ -136,12 +153,60 @@
     background  : rgba(168, 85, 247, 0.15);
   }
 
+  .think-summary span {
+    color           : #c084fc;
+    text-shadow     : 0 0 6px rgba(192, 132, 252, 0.6);
+    animation       : pulse 2s infinite alternate;
+  }
+
+  @keyframes pulse {
+    0%   { opacity: 0.6; }
+    100% { opacity: 1; }
+  }
+
   .think-body {
     padding     : 8px 10px;
     font-size   : 0.75rem;
     color       : #94a3b8;
     border-top  : 1px dashed rgba(168, 85, 247, 0.2);
     background  : rgba(0, 0, 0, 0.2);
+  }
+
+  /* Mission State block <mission_state> */
+  .mission-box {
+    margin-top      : 8px;
+    background      : rgba(0, 240, 255, 0.03);
+    border          : 1px solid rgba(0, 240, 255, 0.2);
+    border-radius   : 6px;
+    overflow        : hidden;
+  }
+
+  .mission-summary {
+    padding         : 6px 10px;
+    font-size       : 0.7rem;
+    color           : #00f0ff;
+    cursor          : pointer;
+    user-select     : none;
+    font-weight     : 600;
+    letter-spacing  : 0.5px;
+    display         : flex;
+    align-items     : center;
+    gap             : 6px;
+    background      : rgba(0, 240, 255, 0.08);
+    transition      : background 0.2s ease;
+  }
+
+  .mission-summary:hover {
+    background  : rgba(0, 240, 255, 0.15);
+  }
+
+  .mission-body pre {
+    margin      : 0;
+    padding     : 8px 10px;
+    font-size   : 0.7rem;
+    color       : #38bdf8;
+    background  : rgba(0, 0, 0, 0.4);
+    border      : none;
   }
 
   /* Global style for Markdown content */
@@ -188,7 +253,7 @@
       {#if parsed.think}
         <details class="think-box">
           <summary class="think-summary">
-            REFLEXIONS
+            <span>⚡</span> // REFLEXIONS
           </summary>
           <div class="think-body">
             {@html marked(parsed.think)}
@@ -197,6 +262,17 @@
       {/if}
 
       {@html marked(parsed.final)}
+
+      {#if parsed.mission}
+        <details class="mission-box">
+          <summary class="mission-summary">
+            🗺️ // MISSION GRAPH PAYLOAD (UPDATED)
+          </summary>
+          <div class="mission-body">
+            <pre><code>{parsed.mission}</code></pre>
+          </div>
+        </details>
+      {/if}
     </div>
   </div>
 </div>
