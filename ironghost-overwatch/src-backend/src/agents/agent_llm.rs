@@ -1,5 +1,7 @@
 use tokio::net::UnixStream;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use async_stream::stream;
+use futures_util::stream::Stream;
 
 pub struct AgentLLM {
     socket_path: String,
@@ -7,11 +9,42 @@ pub struct AgentLLM {
 
 impl AgentLLM {
     pub fn new(socket_path: &str) -> Self {
-        Self {
-            socket_path: socket_path.to_string(),
+        Self { socket_path: socket_path.to_string() }
+    }
+
+    pub fn stream_generate<'a>(&'a self, prompt: &'a str) -> impl Stream<Item = String> + 'a {
+        stream! {
+            if let Ok(mut stream) = UnixStream::connect(&self.socket_path).await {
+                let data = prompt.as_bytes();
+                let len_bytes = (data.len() as u32).to_le_bytes();
+
+                if stream.write_all(&len_bytes).await.is_err() { return; }
+                if stream.write_all(data).await.is_err() { return; }
+
+                let mut utf8_buffer = Vec::new();
+
+                loop {
+                    let mut len_buf = [0u8; 4];
+                    if stream.read_exact(&mut len_buf).await.is_err() { break; }
+                    let len = u32::from_le_bytes(len_buf) as usize;
+
+                    let mut token_buf = vec![0u8; len];
+                    if stream.read_exact(&mut token_buf).await.is_err() { break; }
+
+                    if token_buf == b"\n=== END_OF_STREAM ===" { break; }
+
+                    utf8_buffer.extend_from_slice(&token_buf);
+
+                    if let Ok(s) = std::str::from_utf8(&utf8_buffer) {
+                        yield s.to_string(); // <-- Émet le fragment directement dans le stream
+                        utf8_buffer.clear();
+                    }
+                }
+            }
         }
     }
 
+    /*
     pub async fn generate(&self, prompt: &str) -> String {
 
         println!("[AGENTLLM] connecting to socket {}...", self.socket_path);
@@ -76,4 +109,5 @@ impl AgentLLM {
 
         final_output
     }
+    */
 }

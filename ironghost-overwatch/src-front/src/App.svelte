@@ -7,85 +7,9 @@
   let messages    = [];
   let container;
   let draft       = "";
-  let ws;//const ws = new WebSocket("ws://127.0.0.1:9000");
-
-  // Dummy mission
-  let mission = {
-    nodes: [],
-    edges: []
-  /*
-  nodes: [
-    // GOALS
-    { id: "goal_intrusion",   kind: "goal", title: "Accéder au SI interne" },
-    { id: "goal_persistence", kind: "goal", title: "Établir une persistance stable" },
-    { id: "goal_exfil",       kind: "goal", title: "Exfiltrer des données sensibles" },
-
-    // SUBGOALS
-    { id: "sub_recon",    kind: "subgoal", title: "Cartographier l’infrastructure" },
-    { id: "sub_creds",    kind: "subgoal", title: "Obtenir des identifiants valides" },
-    { id: "sub_lateral",  kind: "subgoal", title: "Mouvement latéral" },
-
-    // TASKS
-    { id: "task_scan",        kind: "task", title: "Scan réseau interne" },
-    { id: "task_enum",        kind: "task", title: "Enum AD / LDAP" },
-    { id: "task_phish",       kind: "task", title: "Campagne de phishing ciblée" },
-    { id: "task_bruteforce",  kind: "task", title: "Bruteforce RDP / SSH" },
-    { id: "task_priv_esc",    kind: "task", title: "Escalade de privilèges" },
-    { id: "task_dump",        kind: "task", title: "Dump des secrets (LSASS / Vault)" },
-    { id: "task_exfil",       kind: "task", title: "Exfiltration via canal chiffré" },
-
-    // ASSETS
-    { id: "asset_ad",   kind: "asset", title: "Contrôleur de domaine" },
-    { id: "asset_mail", kind: "asset", title: "Serveur de messagerie" },
-    { id: "asset_vpn",  kind: "asset", title: "Portail VPN" },
-    { id: "asset_db",   kind: "asset", title: "Base de données RH" },
-
-    // VULNS
-    { id: "vuln_smb", kind: "vuln", title: "SMB Signing désactivé" },
-    { id: "vuln_rdp", kind: "vuln", title: "RDP exposé sans MFA" },
-    { id: "vuln_vpn", kind: "vuln", title: "VPN obsolète (CVE-2023-XYZ)" },
-    { id: "vuln_ad",  kind: "vuln", title: "AD mal segmenté" },
-
-    // RISKS
-    { id: "risk_detection", kind: "risk", title: "Détection par EDR" },
-    { id: "risk_lockout",   kind: "risk", title: "Lockout des comptes" },
-    { id: "risk_alert",     kind: "risk", title: "Alerte SOC" }
-  ],
-
-  edges: [
-    // GOAL STRUCTURE
-    { from: "sub_recon",      to: "goal_intrusion",   relation: "supports" },
-    { from: "sub_creds",      to: "goal_intrusion",   relation: "supports" },
-    { from: "sub_lateral",    to: "goal_intrusion",   relation: "supports" },
-    { from: "task_priv_esc",  to: "goal_persistence", relation: "supports" },
-    { from: "task_exfil",     to: "goal_exfil",       relation: "supports" },
-
-    // TASKS → SUBGOALS
-    { from: "task_scan",        to: "sub_recon",    relation: "enables" },
-    { from: "task_enum",        to: "sub_recon",    relation: "enables" },
-    { from: "task_phish",       to: "sub_creds",    relation: "enables" },
-    { from: "task_bruteforce",  to: "sub_creds",    relation: "enables" },
-    { from: "task_dump",        to: "sub_lateral",  relation: "enables" },
-
-    // TASKS → ASSETS
-    { from: "task_enum",        to: "asset_ad",   relation: "targets" },
-    { from: "task_phish",       to: "asset_mail", relation: "targets" },
-    { from: "task_bruteforce",  to: "asset_rdp",  relation: "targets" },
-    { from: "task_scan",        to: "asset_vpn",  relation: "targets" },
-    { from: "task_dump",        to: "asset_db",   relation: "targets" },
-
-    // VULNS → TASKS
-    { from: "vuln_smb", to: "task_enum",        relation: "facilitates" },
-    { from: "vuln_rdp", to: "task_bruteforce",  relation: "facilitates" },
-    { from: "vuln_vpn", to: "task_scan",        relation: "facilitates" },
-    { from: "vuln_ad",  to: "task_priv_esc",    relation: "facilitates" },
-
-    // RISKS → TASKS
-    { from: "risk_detection", to: "task_priv_esc",    relation: "threatens" },
-    { from: "risk_lockout",   to: "task_bruteforce",  relation: "threatens" },
-    { from: "risk_alert",     to: "task_phish",       relation: "threatens" }
-  ]*/
-};
+  let ws;
+  let mission = { nodes: [], edges: [] };
+  let activeStreams = {};
 
   onMount(() => {
     try {
@@ -102,17 +26,45 @@
 
         const data = JSON.parse(event.data);
 
-        if (data.type === "history") {
-          messages = data.payload;
-          return;
-        }
+        switch (data.type) {
+          case "history":
+            messages = data.payload;
+            break;
 
-        if (data.type === "mission_state") {
-          mission = data.payload;
-          return;
-        }
+          case "mission_state":
+            mission = data.payload;
+            break;
 
-        messages = [...messages, data.payload];
+          case "message":
+            messages = [...messages, data.payload];
+            break;
+
+          case "StreamStart":
+            activeStreams[data.payload.msg_id] = {
+              msg_id   : data.payload.msg_id,
+              agent    : data.payload.agent,
+              content  : "",
+              timestamp: Date.now()
+            };
+            activeStreams = activeStreams;
+            break;
+
+          case "StreamChunk":
+            if (activeStreams[data.payload.msg_id]) {
+              activeStreams[data.payload.msg_id].content += data.payload.delta;
+              activeStreams = activeStreams;
+            }
+            break;
+
+          case "StreamEnd":
+            delete activeStreams[data.payload.msg_id];
+            activeStreams = activeStreams;
+            break;
+
+          default:
+            console.warn("Event unknown:", data.type);
+            break;
+        }
 
         // Auto-scroll only when user is at bottom
         if (atBottom && container) {
@@ -365,6 +317,18 @@
         { #each messages as m }
           <Message msg={ m } />
         { /each }
+
+        <!-- Streaming messages -->
+        {#each Object.values(activeStreams) as stream (stream.msg_id)}
+          <Message 
+            msg={{
+              agent: stream.agent,
+              content: stream.content + "▌",
+              timestamp: stream.timestamp
+            }}
+            isStreaming={true}
+          />
+        {/each}
       </div>
 
       <div class="input-area">

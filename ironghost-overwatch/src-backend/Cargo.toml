@@ -21,3 +21,6 @@ tracing-subscriber = "0.3"
 # For front-end (tauri via websocket)
 tokio-tungstenite = "0.21"
 futures-util = "0.3"
+
+# For stream
+async-stream = "0.3"

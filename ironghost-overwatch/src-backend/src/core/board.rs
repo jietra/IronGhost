@@ -41,6 +41,10 @@ pub enum BoardEvent {
     NewMessage(BoardMessage),
     #[serde(rename = "mission_state")]
     MissionState(Mission),
+
+    StreamStart { msg_id: String, agent: String },
+    StreamChunk { msg_id: String, delta: String },
+    StreamEnd   { msg_id: String },
 }
 
 impl Board {
@@ -53,7 +57,7 @@ impl Board {
             }
     }
 
-    // publish to board
+    // publish message to board
     pub async fn publish(&mut self, msg: BoardMessage) {
 
         // add msg to board messages
@@ -92,6 +96,11 @@ impl Board {
             }
         }
         None
+    }
+
+    // generic event
+    pub fn publish_event(&self, event: BoardEvent) {
+        let _ = self.tx.send(event);
     }
 }
 

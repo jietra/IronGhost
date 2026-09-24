@@ -2,6 +2,7 @@
   import { marked } from "marked";
 
   export let msg;
+  export let isStreaming = false;
 
   let parsed = { think: null, mission: null, final: "" };
 
@@ -9,24 +10,24 @@
     if (typeof raw !== "string") raw = "";
 
     // extract <think> block
-    const thinkMatch = raw.match( /<think>([\s\S]*?)<\/think>/ );
-    const think = thinkMatch ? thinkMatch[1].trim() : null;
+    const thinkMatch = raw.match( /<think>([\s\S]*?)(?:<\/think>|$)/i );
+    const think      = thinkMatch ? thinkMatch[1].trim() : null;
 
     // extract <mission_state> block
-    const missionMatch = raw.match(/<mission_state>([\s\S]*?)<\/mission_state>/i);
+    const missionMatch = raw.match( /<mission_state>([\s\S]*?)(?:<\/mission_state>|$)/i );
     let mission = null;
-    if (missionMatch) {
+    if (missionMatch && missionMatch[1].trim()) {
       try {
         mission = JSON.stringify(JSON.parse(missionMatch[1].trim()), null, 2);
       } catch (e) {
-        mission = missionMatch[1].trim(); // raw fallback if JSON fails (or still streaming)
+        mission = missionMatch[1].trim(); // raw fallback during streaming
       }
     }
 
     // cleaning for markdown parser
     let final = raw
-      .replace(/<think>[\s\S]*?<\/think>/gi, "")
-      .replace(/<mission_state>[\s\S]*?<\/mission_state>/gi, "")
+      .replace(/<think>[\s\S]*?(?:<\/think>|$)/gi, "")
+      .replace(/<mission_state>[\s\S]*?(?:<\/mission_state>|$)/gi, "")
       .trim();
 
     return { think, mission, final };
@@ -209,6 +210,66 @@
     border      : none;
   }
 
+  .generation-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 6px;
+    padding: 2px 8px;
+    background: rgba(0, 240, 255, 0.05);
+    border: 1px solid rgba(0, 240, 255, 0.2);
+    border-radius: 4px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: #00f0ff;
+    text-shadow: 0 0 6px rgba(0, 240, 255, 0.5);
+    width: fit-content;
+  }
+
+  .status-text {
+    text-transform: uppercase;
+  }
+
+  .dots span {
+    display: inline-block;
+    font-size: 0.85rem;
+    font-weight: bold;
+    animation: wave 1.2s infinite ease-in-out;
+  }
+
+  .dots span:nth-child(1) { animation-delay: 0s; }
+  .dots span:nth-child(2) { animation-delay: 0.2s; }
+  .dots span:nth-child(3) { animation-delay: 0.4s; }
+
+  @keyframes wave {
+    0%, 100% {
+      opacity: 0.2;
+      transform: translateY(0);
+    }
+    50% {
+      opacity: 1;
+      transform: translateY(-2px);
+      color: #ffffff;
+      text-shadow: 0 0 8px #00f0ff;
+    }
+  }
+  /*
+  :global(.blinking-cursor) {
+    display: inline-block;
+    color: #00f0ff;
+    font-weight: bold;
+    margin-left: 2px;
+    animation: blink 0.8s steps(2, start) infinite;
+    text-shadow: 0 0 8px rgba(0, 240, 255, 0.8);
+  }
+  @keyframes blink {
+    to {
+      visibility: hidden;
+    }
+  }
+  */
+
   /* Global style for Markdown content */
   :global(.content p) {
     margin          : 0 0 6px 0;
@@ -251,7 +312,7 @@
 
     <div class="content">
       {#if parsed.think}
-        <details class="think-box">
+        <details class="think-box" open={isStreaming}>
           <summary class="think-summary">
             <span>⚡</span> // REFLEXIONS
           </summary>
@@ -264,7 +325,7 @@
       {@html marked(parsed.final)}
 
       {#if parsed.mission}
-        <details class="mission-box">
+        <details class="mission-box" open={isStreaming}>
           <summary class="mission-summary">
             🗺️ // MISSION GRAPH PAYLOAD (UPDATED)
           </summary>
@@ -272,6 +333,15 @@
             <pre><code>{parsed.mission}</code></pre>
           </div>
         </details>
+      {/if}
+
+      {#if isStreaming}
+        <div class="generation-status">
+          <span class="status-text">GENERATING</span>
+          <span class="dots">
+            <span>.</span><span>.</span><span>.</span>
+          </span>
+        </div>
       {/if}
     </div>
   </div>
