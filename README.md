@@ -39,7 +39,9 @@ AI Agents
  Deterministic Workers
 ```
 
-![IronGhost Overwatch Dashboard](./screenshots/dashboard.png)
+## 🎬 Demo video
+
+[![Voir la démo](./screenshots/demo_miniature.png)](https://github.com/user-attachments/assets/82ffeccf-ba36-426b-b21d-a6ecfafab175)
 
 ## 🏛️ Philosophy: The "Montesquieu-C3" Protocol
 
