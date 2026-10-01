@@ -110,6 +110,14 @@ impl MissionRunner {
 
             if completed_count == total_nodes {
                 println!("[RUNNER] === Mission accomplished! ===");
+                
+                // Notify board
+                let mut b = self.board.lock().await;
+                b.publish(BoardMessage {
+                    agent    : "Runner".into(),
+                    content  : "Mission completed successfully".into(),
+                    timestamp: 0,
+                }).await;
                 break;
             }
         }
@@ -189,104 +197,14 @@ impl MissionRunner {
 
                         Ok(full_output)
                     }
-
-                    /*
-                    match Self::call_worker_uds(socket_path, &prompt).await {
-                        Ok(generated_code) => {
-                            println!("[RUNNER] Output received for node [{}]", node.id);
-
-                            // 3. Notify result on Board
-                            let mut b = board.lock().await;
-                            b.publish(BoardMessage {
-                                agent    : "Runner".into(),
-                                content  : format!("Task [{}] completed:\n```\n{}\n```", node.id, generated_code),
-                                timestamp: chrono::Utc::now().timestamp_millis() as u64,
-                            }).await;
-
-                            Ok(generated_code)
-                        }
-                        Err(err) => Err(format!("Worker failed on node [{}]: {}", node.id, err)),
-                    }
-                    */
                 }
                 _ => Ok("Asset/Goal ignored by runner execution engine".into()), // "assets" or "risks" are only informative at this stage
             };
             
-            //let result = Self::call_worker_uds(socket_path, &prompt).await;
-
-            // Notify board
-            //let mut b = board.lock().await;
-            //b.publish(BoardMessage {
-            //    agent    : "Runner".into(),
-            //    content  : format!("Node [{}] finished: {:?}", node.id, result),
-            //    timestamp: 0,
-            //}).await;
-
             // Inform scheduler to unlock child task
             let _ = tx.send((node_idx, result)).await;
         });
     }
-
-    /*
-    /// Connect to specialized agent / worker via Unix Domain Socket
-    async fn call_worker_uds(socket_path: &str, payload: &str) -> Result<String, String> {
-        let mut stream = UnixStream::connect(socket_path)
-            .await
-            .map_err(|e| format!("UDS Connection error to {}: {}", socket_path, e))?;
-
-        // send payload to socket
-        let data   = payload.as_bytes();
-        let len_bytes = (data.len() as u32).to_le_bytes();
-
-        stream.write_all(&len_bytes)
-            .await
-            .map_err(|e| format!("UDS Write error (len): {}", e))?;
-        stream.write_all(data)
-            .await
-            .map_err(|e| format!("UDS Write error (payload): {}", e))?;
-
-        // close write stream, signaling EOF
-        stream.shutdown().await.map_err(|e| e.to_string())?;
-
-        // read stream
-        let mut utf8_buffer  = Vec::new();
-        let mut response = String::new();
-
-        loop {
-            // read length of token
-            let mut len_buf = [0u8; 4];
-            if stream.read_exact(&mut len_buf).await.is_err() {
-                println!("[AGENTLLM] stream len not exact! break!");
-                break;
-            }
-            let len = u32::from_le_bytes(len_buf) as usize;
-
-            // read token
-            let mut token_buf = vec![0u8; len];
-            //stream.read_exact(&mut token_buf).await.unwrap();
-            if stream.read_exact(&mut token_buf).await.is_err() {
-                return Err("UDS payload stream truncated unexpectedly".into());
-            }
-
-            // end of stream
-            if token_buf == b"\n=== END_OF_STREAM ===" {
-                println!("\n\n[AGENTLLM] end of stream! break!");
-                break;
-            }
-
-            // accumulate UTF-8 fragments
-            utf8_buffer.extend_from_slice(&token_buf);
-
-            if let Ok(s) = std::str::from_utf8(&utf8_buffer) {
-                response.push_str(s);
-                print!("{}", s);
-                utf8_buffer.clear();
-            }
-        }
-
-        Ok(response)
-    }
-    */
 
 }
 
