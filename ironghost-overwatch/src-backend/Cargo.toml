@@ -24,3 +24,10 @@ futures-util = "0.3"
 
 # For stream
 async-stream = "0.3"
+
+# ONNX
+#ort = "2.0.0-rc.13"
+#tokenizers = "0.20"
+#ndarray = "0.16"
+
+petgraph = "0.6"

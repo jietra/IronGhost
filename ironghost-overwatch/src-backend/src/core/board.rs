@@ -1,3 +1,7 @@
+// src/core/board.rs
+
+/// Mission declarative view
+
 use tokio::sync::broadcast;
 use serde::{Serialize, Deserialize};
 
@@ -6,6 +10,12 @@ pub struct MissionNode {
     pub id   : String,
     pub kind : String, // "goal", "subgoal", "task", "asset", "vuln", "risk"
     pub title: String,
+
+    #[serde(default)]
+    pub description: Option<String>,
+
+    #[serde(default)]
+    pub worker     : Option<String>, // E.g.: "coder", "sentinel", "executor", "tool:nmap"
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

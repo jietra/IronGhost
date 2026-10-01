@@ -38,14 +38,14 @@ static std::unordered_map<std::string, std::string> load_env(const std::string& 
 }
 
 int main() {
-    auto env = load_env("../.env"); // launched from ceo/build
+    auto env = load_env("../.env"); // launched from /build
 
     std::string sys_prompt = read_file(env["SYSTEM_PROMPT"]);
     std::string grammar_str = read_file(env["GRAMMAR_STR"]);
 
-    std::cout << "[DEBUG] Loaded system prompt length: " << sys_prompt.size() << " chars\n";
+    std::cout << "[DEBUG] Loaded system prompt, of length: " << sys_prompt.size() << " chars\n";
     if (sys_prompt.empty()) {
-        std::cerr << "[WARNING] System prompt is empty! Check file path.\n";
+        std::cerr << "[WARNING] system prompt is empty! Check file path.\n";
     }
     std::cout << "[DEBUG] Loaded grammar file, of length: " << grammar_str.size() << " chars\n";
     if (sys_prompt.empty()) {
@@ -88,3 +88,4 @@ int main() {
 
     server.run();
 }
+

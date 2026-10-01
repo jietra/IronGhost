@@ -1,15 +1,15 @@
 #include "uds_server.hpp"
-#include "utils.hpp"
+
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
 #include <cstring>
 #include <iostream>
 #include <sys/socket.h>
-
+#include <csignal>
 
 UDSServer::UDSServer(LLM& llm, const std::string& socket_path, Handler handler)
-    : llm(llm), socket_path(socket_path), handler(handler) {}
+    : socket_path(socket_path), handler(handler), llm(llm) {}
 
 int UDSServer::create_socket() {
 
@@ -63,11 +63,15 @@ void UDSServer::send_response(int client_fd, const std::string& response) {
     write(client_fd, response.data(), len);
 }
 
+static volatile std::sig_atomic_t g_running = 1;
+
 void UDSServer::run() {
+    std::signal(SIGINT, [](int) { g_running = 0; });    // catch Ctrl+C interrupt
+
     int server_fd = create_socket();
     std::cout << "LLM server listening on UDS " << socket_path << std::endl;
 
-    while (true) {
+    while (g_running) {
         // 1. Accept a client
         int client_fd = accept(server_fd, nullptr, nullptr);
         if (client_fd < 0) continue;
@@ -79,16 +83,6 @@ void UDSServer::run() {
                 uint32_t len = piece.size();
                 write(client_fd, &len, sizeof(len));
                 write(client_fd, piece.c_str(), len);
-                /*
-                #ifdef MSG_MORE
-                send(client_fd, &len, sizeof(len), MSG_NOSIGNAL | MSG_MORE);
-                send(client_fd, piece.c_str(), len, MSG_NOSIGNAL);
-                #else
-                send(client_fd, &len, sizeof(len), MSG_NOSIGNAL);
-                send(client_fd, piece.c_str(), len, MSG_NOSIGNAL);
-                fsync(client_fd);
-                #endif
-                */
             }
         );
 
@@ -103,11 +97,12 @@ void UDSServer::run() {
             //std::string response = handler(request);
             handler(request);
             
-            // 5. Send response
+            // 5. No need to send response: response already streamed
             //send_response(client_fd, response);
         }
         close(client_fd);
     }
 
     close(server_fd);
+    unlink(socket_path.c_str());    // proper cleaning
 }

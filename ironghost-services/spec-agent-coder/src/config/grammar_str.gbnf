@@ -1,0 +1,2 @@
+root ::= ( "```" [a-zA-Z0-9_-]* "\n" code-body "```" )
+code-body ::= [^`]+

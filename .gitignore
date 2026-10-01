@@ -18,15 +18,23 @@ ironghost-overwatch/src-tauri/target
 ironghost-services/archive
 ironghost-services/models
 ironghost-services/ceo
+
 ironghost-services/agent-strategist/build
 ironghost-services/agent-strategist/.env
 ironghost-services/agent-strategist/logs
-ironghost-services/agent-coder/build
-ironghost-services/agent-coder/.env
-ironghost-services/agent-coder/logs
+
 ironghost-services/agent-generic/build
 ironghost-services/agent-generic/.env
 ironghost-services/agent-generic/logs
+
+ironghost-services/spec-agent-coder/build
+ironghost-services/spec-agent-coder/.env
+ironghost-services/spec-agent-coder/logs
+
+ironghost-services/sentinel-code
+ironghost-services/sentinel-code/build
+ironghost-services/sentinel-code/.env
+ironghost-services/sentinel-code/logs
 
 # Rust / Cargo
 /target/
@@ -51,3 +59,9 @@ ironghost-services/agent-generic/logs
 /node_modules/
 /src-tauri/target/
 .DS_Store
+
+# Sentinel
+ironghost-sentinel/
+ironghost-sentinel/sentinel_onnx/model_fp32.onnx.data
+ironghost-sentinel/sentinel_onnx/onnx
+ironghost-sentinel/sentinel_onnx/.cache

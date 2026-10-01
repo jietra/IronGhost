@@ -55,17 +55,7 @@ LLM::LLM(
     n_ctx = llama_n_ctx(ctx);
 
     // LLM.sampler init
-    sampler = llama_sampler_chain_init( llama_sampler_chain_default_params() );
-    llama_sampler_chain_add(sampler,
-        llama_sampler_init_top_k(sampling_params.top_k));
-    llama_sampler_chain_add(sampler,
-        llama_sampler_init_top_p(sampling_params.top_p, 1));
-    llama_sampler_chain_add(sampler,
-        llama_sampler_init_min_p(sampling_params.min_p, 1));
-    llama_sampler_chain_add(sampler,
-        llama_sampler_init_temp(sampling_params.temperature));
-    llama_sampler_chain_add(sampler,
-        llama_sampler_init_dist(sampling_params.seed));
+    reset_sampler(sampling_params);
 
     // LLM.messages and LLM.text_storage init
     add_message("system", system_prompt);
@@ -266,19 +256,54 @@ std::string LLM::run_llm(const std::string& full_prompt) {
 void LLM::reset_sampler(const SamplingParams & params) {
     sampling_params = params;
     
+    // deallocate sampler memory if any (avoid leaky memory)
     if (sampler) {
         llama_sampler_free(sampler);
+        sampler = nullptr;
     }
+
     sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
 
+    //      0. init grammar
+    if (!sampling_params.grammar_str.empty()) {
+        std::cout << "[SAMPLER] applying grammar..." << std::endl;
+        struct llama_sampler * grammar_sampler = llama_sampler_init_grammar(
+            vocab,
+            sampling_params.grammar_str.c_str(), // convert to const char *
+            "root"                              // rule entry point in GBNF file
+        );
+
+        if (grammar_sampler != nullptr) {
+            llama_sampler_chain_add(sampler, grammar_sampler);
+            std::cout << "[SAMPLER] GBNF grammar successfuly loaded." << std::endl;
+        }
+    }
+
+    //      1. init penalties first (especially relevant for SLMs)
+    int32_t n_vocab = llama_vocab_n_tokens(vocab);
+    llama_sampler_chain_add(sampler,
+        llama_sampler_init_penalties(
+            n_vocab,
+            sampling_params.penalty_last_n,
+            sampling_params.penalty_repeat,
+            sampling_params.penalty_freq,
+            sampling_params.penalty_present
+        )
+    );
+    
+    //      2. init temp (adjust probability curve)
+    llama_sampler_chain_add(sampler,
+        llama_sampler_init_temp(sampling_params.temperature));
+    
+    //      3. Filtering/Cropping (set tail-tokens to 0)
     llama_sampler_chain_add(sampler,
         llama_sampler_init_top_k(sampling_params.top_k));
     llama_sampler_chain_add(sampler,
         llama_sampler_init_top_p(sampling_params.top_p, 1));
     llama_sampler_chain_add(sampler,
         llama_sampler_init_min_p(sampling_params.min_p, 1));
-    llama_sampler_chain_add(sampler,
-        llama_sampler_init_temp(sampling_params.temperature));
+    
+    //      4. Distribution last
     llama_sampler_chain_add(sampler,
         llama_sampler_init_dist(sampling_params.seed));
 }
@@ -300,4 +325,21 @@ void LLM::reset_all() {
 void LLM::reset_kv_cache() {
     kv_len       = 0;
     kv_len_token = 0;
+}
+
+void LLM::reset_context() {
+    if (ctx) {
+        llama_free(ctx);
+        ctx = nullptr;
+    }
+
+    llama_context_params cparams = llama_context_default_params();
+    cparams.n_ctx       = ctx_size_requested;   // value requested by user (or default value)
+    cparams.n_threads   = n_threads;
+    cparams.n_batch     = ctx_size_requested;   // when model uses flash attention, it has strict rules checking n_batch.
+
+    ctx = llama_init_from_model(model, cparams);
+
+    reset_sampler(sampling_params);
+    reset_kv_cache();
 }

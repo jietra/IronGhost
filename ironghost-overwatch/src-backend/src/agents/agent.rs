@@ -42,12 +42,12 @@ impl Agent {
 
     pub async fn run(mut self) {
         while let Ok(event) = self.rx.recv().await {
-
-            println!("[AGENT] message received by agent {}", self.name);
-
             // Extract message if `NewMessage` event
             let msg = match event {
-                BoardEvent::NewMessage(msg) => msg,
+                BoardEvent::NewMessage(msg) => {
+                    println!("[AGENT] message received by agent {}", self.name);
+                    msg
+                },
                 BoardEvent::MissionState(_) => continue,    // ignored for now
                 BoardEvent::StreamStart { .. } | BoardEvent::StreamChunk { .. } | BoardEvent::StreamEnd { .. } => continue, // ignore stream from other agents
             };
@@ -57,18 +57,16 @@ impl Agent {
 
             self.buffer.push( msg.clone() );
 
-            if msg.content.contains(&format!("@{}", self.name)) {
-
+            if msg.content.contains(&format!("!@{}", self.name)) {
                 println!("[AGENT] agent {} aknowledges tag", self.name);
 
-                let prompt    = self.buffer.flush(&self.name);
-
-                println!("[AGENT] sending prompt \"{}\" to llm service...", prompt);
+                let prompt = self.buffer.flush(&self.name);
+                println!("[AGENT] sending to llm service the prompt\n\"{}\"\n", prompt);
 
                 let msg_id = format!("{}-{}", self.name, Utc::now().timestamp_millis());
+                let tx = self.board.lock().await.tx.clone();
 
                 // start of stream -> Notif UI via Board
-                let tx = self.board.lock().await.tx.clone();
                 let _ = tx.send(BoardEvent::StreamStart {
                     msg_id: msg_id.clone(),
                     agent : self.name.clone(),

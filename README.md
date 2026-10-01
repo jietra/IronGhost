@@ -8,26 +8,133 @@
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux-lightgrey.svg)](https://apple.com)
 [![Architecture](https://img.shields.io/badge/Architecture-Montesquieu--C3-red.svg)](#-philosophy-the-montesquieu-c3-protocol)
 
-> **An Autonomous, Human-in-the-Loop Cyber Command & Control (C3) Architecture Powered by Multi-Agent Cognitive Orchestration.**
-
-![IronGhost Overwatch Dashboard](./screenshots/dashboard.png)
+> **Mission-driven orchestration for untrusted AI agents.**
 
 ---
 
+AI systems should propose.
+Deterministic systems should execute.
+
+IronGhost separates cognition, orchestration and execution through a mission-centric architecture where LLMs are treated as untrusted components.
+
+```code
+AI Agents
+      │
+      ▼
+ Mission Graph
+      │
+      ▼
+ Mission Compiler
+      │
+      ▼
+ Execution DAG
+      │
+      ▼
+ Sentinels
+      │
+      ▼
+ Human Approval
+      │
+      ▼
+ Deterministic Workers
+```
+
+![IronGhost Overwatch Dashboard](./screenshots/dashboard.png)
+
 ## 🏛️ Philosophy: The "Montesquieu-C3" Protocol
 
-**IronGhost** is built around a core architectural principle: **The Separation of Powers**. 
+**IronGhost** treats LLMs as *untrusted cognitive components*. They may propose plans, code and assessments, but they never execute actions directly. The Mission Graph is the sole source of truth.
 
-Traditional AI agent frameworks often grant Large Language Models (LLMs) direct code execution capabilities—creating catastrophic security and reliability risks. IronGhost solves this by decoupling cognition, orchestration, and execution into strict, isolated boundaries:
+### Mission Graph
+
+The Mission Graph is the persistent state of the system.
+
+Agents are transient.
+
+Contexts are discarded.
+
+Messages are ephemeral.
+
+The Mission Graph is the only authoritative representation of the mission.
+
+### Mission-Centric Architecture
+
+Traditional AI frameworks are agent-centric:
+
+```code
+Agent
+ ↓
+Tool
+ ↓
+Action
+```
+
+IronGhost is mission-centric:
+
+```code
+Agents
+ ↓
+Mission Graph
+ ↓
+Execution DAG
+ ↓
+Workers
+```
+
+Agents do not hold the system state. The Mission Graph does.
+
+### Zero-Trust AI
+
+**IronGhost** is built around a core architectural principle: **The Separation of Powers**, inspired by a Zero-Trust approach.
+
+IronGhost assumes that every LLM can:
+
+- hallucinate
+- drift
+- be manipulated
+- produce unsafe code
+- misunderstand mission context
+
+Therefore:
+
+- agents are isolated
+- specialized agents use an amnesia protocol
+- sentinels independently validate outputs
+- workers are deterministic
+- execution authority remains outside the AI layer
+
+### The Amnesia Protocol
+
+IronGhost deliberately avoids long-lived cognitive state.
+
+Specialized agents:
+
+- receive a bounded task
+- complete the task
+- publish outputs to the Mission Graph
+- discard their context
+
+This prevents:
+
+- cognitive drift
+- hidden state accumulation
+- context poisoning
+- non-reproducible decisions
+
+Persistent state belongs to the Mission Graph, not to the agents.
+
+### Dual-Channel Governance
+
+While traditional AI agent frameworks often grant Large Language Models (LLMs) direct code execution capabilities—creating security and reliability risks, providing agents with more memory and autonomy, IronGhost decouples cognition, orchestration, and execution into strict, isolated boundaries, and follows a "minimal" trust philosophy:
 
 1. **Dual-Channel Governance**:
-   * **Cognitive Cooperative Channel (Blackboard)**: A shared forum where specialized LLM agents collaborate, propose strategies, and build a real-time **Mission Knowledge Graph**.
-   * **Hierarchical Command & Control (C2)**: A strict military-grade command chain. Human Operators hold the highest authority and must validate actions before execution.
+   * **Cognitive Cooperative Channel (Blackboard)**: A shared forum where cognitive AI agents collaborate, propose strategies, and propose a **Mission Graph**.
+   * **Hierarchical Command & Control (C2)**: A strict command chain. Human Operators hold the highest authority and validate actions before execution. The Mission Graph, is rendered in real time, and is translated into an execution graph (deterministic) under strict automated (sentinels) and human supervision.
 2. **Strict Isolation & Execution Safety**:
-   * **No Direct AI Execution**: LLMs *cannot* execute code. They are cognitive advisors, not execution runtimes.
-   * **Deterministic Workers**: Execution is offloaded to isolated, non-AI worker environments (e.g., dedicated Kali Linux VMs) running deterministic, audited scripts.
+   * **No Direct AI Execution**: LLMs *cannot* execute code. They are either cognitive advisors, specialized agents or sentinels (with amnesia protocol) with no execution runtimes.
+   * **Deterministic Workers**: Execution is offloaded to isolated, non-AI worker environments (e.g., dedicated Kali Linux VMs) running deterministic, curated scripts.
    * **Safe Orchestration**: A central **Rust Orchestrator** manages message routing, state transitions, human validations, and alert escalations without using any internal LLM logic.
-   * **Sentinel Filtering**: A special agent, *Sentinel*, is tasked to filter all codes before they reach workers. Sentinel is isolated from other AI agents, and has an *amnesia* protocol (stateless - clear KV-cache etc.).
+   * **Sentinel Filtering**: Special agents, *Sentinels*, are tasked to filter all code before they reach workers. Sentinels are isolated from other AI agents, and have an *amnesia* protocol (stateless - clear KV-cache etc.).
 
 Example of action process:
 
@@ -57,6 +164,19 @@ Example of action process:
 
 ---
 
+## What IronGhost Is Not
+
+IronGhost is not:
+
+- an autonomous offensive AI
+- a self-executing agent framework
+- a direct Tool-Use runtime
+- an AGI experimentation platform
+
+IronGhost is a mission execution architecture where AI proposes and deterministic systems execute.
+
+---
+
 ## 🏗️ Architecture & Modules
 
 The repository currently exposes the core infrastructure modules:
@@ -83,7 +203,7 @@ The repository currently exposes the core infrastructure modules:
 +-----------------------------------+     +-----------------------------+
 ```
 
-> Note: the C2 Link, Sentinel filtering, and determistic workers are not currently published.
+> Note: the C2 Link, Sentinel filtering, and deterministic workers are not currently published.
 
 ### 📦 Published Modules
 
@@ -94,13 +214,14 @@ The repository currently exposes the core infrastructure modules:
 * **`ironghost-services`** *(C++ / Native)*:
   * High-performance, lean LLM inference service designed for local execution (model agnostic).
   * Communicates via custom **Binary IPC over Unix Domain Sockets (UDS)** for ultra-low latency and zero-copy performance.
+  > NB: Using different types of llm micro-services is possible but not shown here (e.g. protobuf, gRPC or REST frameworks).
 
 ---
 
 ## ⚡ Performance Highlights
 
-* **Zero-Copy IPC**: Bypasses heavy REST/gRPC overhead by utilizing native C++ binary framing over Unix Domain Sockets, offering near-zero inter-agent messaging latency.
-* **Grammar-Constrained Output**: Forces LLM inference to adhere strictly to GBNF grammars, guaranteeing 100% valid JSON payload generation for mission graph updates.
+* **Zero-Copy IPC**: Bypasses heavy REST/gRPC overhead by utilizing native C++ binary framing over Unix Domain Sockets, offering low inter-agent messaging latency. This is mainly designed for local implementations. Cloud implementations are possible but not shown here.
+* **Grammar-Constrained Output**: Forces LLM inference to adhere strictly to GBNF grammars.
 * **Memory Safety**: Core orchestration written in Rust, eliminating memory corruption vulnerabilities at the control layer.
 
 ---
@@ -131,17 +252,17 @@ mkdir models
 
 Import your models in this directory.
 
-Other sub-directories in `ironghost-services/` correspond to an independant inference service (you can create as many services as you need). Three examples are given in this repo: `agent-strategist`, `agent-coder` and `agent-generic`.
+Other sub-directories in `ironghost-services/` correspond to independant inference services (you can create as many services as you need - providing your machine can hold them). Three examples are given in this repo: 2 cognitive agents (statefull): `agent-strategist`, and `agent-generic`; and a specialized agent: `spec-agent-coder` (stateless).
 
 For each service:
 
-- configure your `.env` file (in `ironghost-services/agent-<your_service>/.env`) (examples provided, to be adapted your own setup) ;
-- in `src/prompts/` you may provide a system prompt (`.txt`) and a grammar (`.gbnf`).
+- configure your `.env` file (in `ironghost-services/<your_service>/.env`) (examples provided, to be adapted according to your own setup) ;
+- in `src/config/` you may provide a custom system prompt (`.txt`) and a grammar (`.gbnf`).
 
 Build your service:
 
 ```bash
-cd ironghost-services/agent-<your_service>
+cd ironghost-services/<your_service>
 mkdir build && cd build
 rm -rf * 
 cmake .. -DCMAKE_BUILD_TYPE=Release
@@ -152,7 +273,7 @@ Launch your services:
 
 ```bash
 cd build/
-./agent_<your_service>
+./<your_service_binary>
 ```
 
 > TODO: script this.
@@ -164,7 +285,7 @@ cd ironghost-overwatch
 cargo run --release
 ```
 
-> Note that, at this stage of development, agents react to tagging `@<name_of_you_agent>` in board messages. Automatic tagging will be implemented in future version.
+> Note that, at this stage of development, agents react to tagging `!@<name_of_you_agent>` in board messages. Automatic tagging will be implemented in future version.
 
 #### For dev mode:
 
@@ -195,8 +316,19 @@ npm run tauri dev
 - [x] Asynchronous Rust Board Orchestrator & Event Pipeline
 - [x] Real-time Svelte/Tauri Tactical Overwatch Dashboard
 - [x] Dynamic Mission Knowledge Graph Generation (<mission_state>)
+- [x] Implementation of Mission Graph runner with parallel execution (execution DiGraph)
 - [ ] Integration of Deterministic Kali Linux Execution Workers
 - [ ] Formalized C2 Protocol for Sandboxed Worker Execution
+- [ ] Sentinel policy engine
+- [ ] Mission Graph validator
+- [ ] Worker cancellation propagation
+- [ ] Mission versioning
+- [ ] Mission graph signatures
+- [ ] RBAC and operator workflow
+- [ ] Formal Mission DSL
+- [ ] Mission Graph persistence
+- [ ] Mission replay & audit trail
+- [ ] Deterministic policy engine
 
 ## 📄 License
 

@@ -14,29 +14,48 @@ impl AgentLLM {
 
     pub fn stream_generate<'a>(&'a self, prompt: &'a str) -> impl Stream<Item = String> + 'a {
         stream! {
+            println!("[AGENTLLM] connecting to socket {}...", self.socket_path);
+
+            // connect to socket
             if let Ok(mut stream) = UnixStream::connect(&self.socket_path).await {
-                let data = prompt.as_bytes();
+                println!("[AGENTLLM] connected to socket");
+
+                // --- Send prompt ---
+                // send length and data
+                let data      = prompt.as_bytes();
                 let len_bytes = (data.len() as u32).to_le_bytes();
 
-                if stream.write_all(&len_bytes).await.is_err() { return; }
-                if stream.write_all(data).await.is_err() { return; }
+                if stream.write_all( &len_bytes ).await.is_err() { return; }
+                if stream.write_all( data       ).await.is_err() { return; }
 
+                // --- Read stream ---
+                // read tokens till END_OF_STREAM
                 let mut utf8_buffer = Vec::new();
 
                 loop {
+                    // read length of token
                     let mut len_buf = [0u8; 4];
-                    if stream.read_exact(&mut len_buf).await.is_err() { break; }
+                    if stream.read_exact( &mut len_buf   ).await.is_err() {
+                        println!("[AGENTLLM] stream len not exact! break!");
+                        break;
+                    }
                     let len = u32::from_le_bytes(len_buf) as usize;
 
+                    // read token
                     let mut token_buf = vec![0u8; len];
-                    if stream.read_exact(&mut token_buf).await.is_err() { break; }
+                    if stream.read_exact( &mut token_buf ).await.is_err() { break; }
 
-                    if token_buf == b"\n=== END_OF_STREAM ===" { break; }
+                    // end of stream
+                    if token_buf == b"\n=== END_OF_STREAM ===" {
+                        println!("\n\n[AGENTLLM] end of stream! break!");
+                        break;
+                    }
 
+                    // accumulate UTF-8 fragments
                     utf8_buffer.extend_from_slice(&token_buf);
 
                     if let Ok(s) = std::str::from_utf8(&utf8_buffer) {
-                        yield s.to_string(); // <-- Émet le fragment directement dans le stream
+                        yield s.to_string();    // <-- Emit chunk directly into stream
                         utf8_buffer.clear();
                     }
                 }
@@ -61,13 +80,8 @@ impl AgentLLM {
         let data      = prompt.as_bytes();
         let len_bytes = (data.len() as u32).to_le_bytes();
 
-        stream.write_all(&len_bytes).await.unwrap();
-
-        println!("[AGENTLLM] length sent: {}", data.len());
-
-        stream.write_all(data).await.unwrap();
-        
-        println!("[AGENTLLM] data sent: {}", prompt);
+        stream.write_all(&len_bytes).await.unwrap(); println!("[AGENTLLM] length sent: {}", data.len());
+        stream.write_all(data).await.unwrap();       println!("[AGENTLLM] data sent: {}", prompt);
 
         // --- Read stream ---
         // read tokens till END_OF_STREAM
@@ -78,9 +92,7 @@ impl AgentLLM {
             // read length of token
             let mut len_buf = [0u8; 4];
             if stream.read_exact(&mut len_buf).await.is_err() {
-
                 println!("[AGENTLLM] stream len not exact! break!");
-
                 break;
             }
             let len = u32::from_le_bytes(len_buf) as usize;
@@ -91,9 +103,7 @@ impl AgentLLM {
 
             // end of stream
             if token_buf == b"\n=== END_OF_STREAM ===" {
-
                 println!("\n\n[AGENTLLM] end of stream! break!");
-
                 break;
             }
 
