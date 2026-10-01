@@ -118,6 +118,7 @@ impl MissionRunner {
                     content  : "Mission completed successfully".into(),
                     timestamp: 0,
                 }).await;
+                
                 break;
             }
         }

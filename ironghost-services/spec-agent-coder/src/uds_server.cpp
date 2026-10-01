@@ -74,7 +74,7 @@ void UDSServer::send_response(int client_fd, const std::string& response) {
 
 static std::atomic<bool> g_running{true};
 
-void handle_sigint(int) {
+static void handle_sigint(int) {
     g_running = false;
 }
 
@@ -98,13 +98,7 @@ void UDSServer::run() {
 
         int activity = select(server_fd + 1, &readfds, nullptr, nullptr, &tv);
 
-        if (activity < 0) {
-            if (errno == EINTR || !g_running) break;
-            continue;
-        }
-
-        // Timeout expired, loop back to check g_running
-        if (activity == 0 || !FD_ISSET(server_fd, &readfds)) {
+        if (activity <= 0) {
             continue;
         }
 
@@ -113,12 +107,6 @@ void UDSServer::run() {
         if (client_fd < 0) {
             continue;
         }
-
-        // Set a 1s read timeout specifically on the CLIENT socket
-        struct timeval client_tv;
-        client_tv.tv_sec  = 1;
-        client_tv.tv_usec = 0;
-        setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&client_tv, sizeof(client_tv));
 
         // 2. Set callback for this specific client
         llm.set_stream_callback(
@@ -135,13 +123,7 @@ void UDSServer::run() {
             // 3. Read request
             std::string request = read_request(client_fd);
 
-            if (!g_running) break;
-
             if (request.empty()) {
-                // Check if socket was closed by client or if it was just a read timeout
-                if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                    continue; // Timeout occurred, keep looping to check g_running
-                }
                 break; // client closed socket
             }
             // 4. Handle request
