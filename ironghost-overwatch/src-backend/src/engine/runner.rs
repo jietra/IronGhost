@@ -28,13 +28,13 @@ impl MissionRunner {
 
     /// Listen to the Board in background and launch/replace DAG execution
     pub fn spawn_listener(self) -> JoinHandle<()> {
-        let board = self.board.clone();
-        let registry = self.registry.clone();
+        let board   : Arc<Mutex<Board>>  = self.board.clone();
+        let registry: Arc<AgentRegistry> = self.registry.clone();
         
         tokio::spawn(async move {
             // 1. Retrieve broadcast receiver
-            let mut rx = {
-                let b = board.lock().await;
+            let mut rx: tokio::sync::broadcast::Receiver<BoardEvent> = {
+                let b: tokio::sync::MutexGuard<'_, Board> = board.lock().await;
                 b.tx.subscribe()
             };
 
@@ -56,10 +56,10 @@ impl MissionRunner {
                     // 4. compiling Mission into MissionDag (petgraph)
                     match MissionDag::try_from_mission(&new_mission) {
                         Ok(dag) => {
-                            let board_clone = board.clone();
+                            let board_clone: Arc<Mutex<Board>> = board.clone();
                             
                             // 5. spawn new execution
-                            let registry_for_mission = registry.clone();
+                            let registry_for_mission: Arc<AgentRegistry> = registry.clone();
                             current_task = Some(tokio::spawn(async move {
                                 //let runner = MissionRunner::new(board_clone);
                                 let runner = MissionRunner::new(
@@ -120,7 +120,7 @@ impl MissionRunner {
                 println!("[RUNNER] === Mission accomplished! ===");
                 
                 // Notify board
-                let mut b = self.board.lock().await;
+                let mut b: tokio::sync::MutexGuard<'_, Board> = self.board.lock().await;
                 b.publish(BoardMessage {
                     agent    : "Runner".into(),
                     content  : "Mission completed successfully".into(),
@@ -139,16 +139,15 @@ impl MissionRunner {
         board   : Arc<Mutex<Board>>,
         registry: Arc<AgentRegistry>
     ) {
-        let node = node.clone();
-        //let registry_for_task = registry.clone();
+        let node: MissionNode = node.clone();
         
         tokio::spawn(async move {
             println!("[RUNNER] Launching task: [{}] {}", node.kind, node.title);
             
             // executing logic according to node type
-            let result = match node.kind.as_str() {
+            let result: Result<String, String> = match node.kind.as_str() {
                 "task" | "subgoal" => {
-                    let dispatcher = AgentDispatcher::new(registry);
+                    let dispatcher: AgentDispatcher = AgentDispatcher::new(registry);
                     dispatcher.execute(&node, board.clone()).await
                 }
                 _ => Ok("Asset/Goal ignored by runner execution engine".into()), // "assets" or "risks" are only informative at this stage
