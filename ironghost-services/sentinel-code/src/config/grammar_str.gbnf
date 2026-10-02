@@ -1,0 +1,15 @@
+root ::= "{" "\"compliant\":" boolean "," "\"score\":" score "," "\"missing_requirements\":" stringlist "}"
+
+boolean ::= "true" | "false"
+
+score ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "10"
+
+stringlist ::= "[]" | "[" string items "]"
+
+items ::= "" | "," string items
+
+string ::= "\"" chars "\""
+
+chars ::= "" | char chars
+
+char ::= [a-zA-Z0-9_ ] | "-"

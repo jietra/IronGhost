@@ -4,6 +4,7 @@ use backend::{
     config::AppConfig,
     core::board::Board,
     engine::runner::MissionRunner,
+    engine::registry::AgentRegistry,
     ui::websocket::run_websocket_ui,
 };
 use std::sync::Arc;         // share an object (Board) between multiple tasks
@@ -23,7 +24,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("[MAIN] agents spawned and running");
 
     // 3. launch Runner DAG
-    let runner = MissionRunner::new(board.clone());
+    let registry = Arc::new(AgentRegistry::new());
+    let runner = MissionRunner::new(board.clone(), registry);
     runner.spawn_listener(); // Écoute le Board et lance le DAG quand la Mission change
 
     // 4. launch UI

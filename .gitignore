@@ -31,7 +31,6 @@ ironghost-services/spec-agent-coder/build
 ironghost-services/spec-agent-coder/.env
 ironghost-services/spec-agent-coder/logs
 
-ironghost-services/sentinel-code
 ironghost-services/sentinel-code/build
 ironghost-services/sentinel-code/.env
 ironghost-services/sentinel-code/logs

@@ -10,24 +10,27 @@ use petgraph::visit::EdgeRef;
 use crate::core::board::{Board, BoardMessage, MissionNode, BoardEvent};
 use crate::engine::dag::MissionDag;
 
-use crate::agents::agent_llm::AgentLLM;
-use tokio::pin;                     // needed for .next()
-use chrono::Utc;
-use futures_util::StreamExt;        // needed for .next()
+use crate::engine::registry::AgentRegistry;
+use crate::engine::dispatcher::AgentDispatcher;
 
 pub struct MissionRunner {
-    board: Arc<Mutex<Board>>,
+    board   : Arc<Mutex<Board>>,
+    registry: Arc<AgentRegistry>,
 }
 
 impl MissionRunner {
-    pub fn new(board: Arc<Mutex<Board>>) -> Self {
-        Self { board }
+    pub fn new(board: Arc<Mutex<Board>>, registry: Arc<AgentRegistry>) -> Self {
+        Self {
+            board,
+            registry,
+        }
     }
 
     /// Listen to the Board in background and launch/replace DAG execution
     pub fn spawn_listener(self) -> JoinHandle<()> {
         let board = self.board.clone();
-
+        let registry = self.registry.clone();
+        
         tokio::spawn(async move {
             // 1. Retrieve broadcast receiver
             let mut rx = {
@@ -56,8 +59,13 @@ impl MissionRunner {
                             let board_clone = board.clone();
                             
                             // 5. spawn new execution
+                            let registry_for_mission = registry.clone();
                             current_task = Some(tokio::spawn(async move {
-                                let runner = MissionRunner::new(board_clone);
+                                //let runner = MissionRunner::new(board_clone);
+                                let runner = MissionRunner::new(
+                                    board_clone,
+                                    registry_for_mission,
+                                );
                                 runner.run_mission(dag).await;
                             }));
                         }
@@ -86,7 +94,7 @@ impl MissionRunner {
         // 1. trigger initial root nodes (in_degree == 0)
         for idx in dag.graph.node_indices() {
             if in_degrees[idx.index()] == 0 {
-                Self::spawn_task(&dag.graph[idx], idx, tx.clone(), Arc::clone(&self.board));
+                Self::spawn_task(&dag.graph[idx], idx, tx.clone(), Arc::clone(&self.board), Arc::clone(&self.registry));
             }
         }
 
@@ -104,7 +112,7 @@ impl MissionRunner {
 
                 // if all child dependencies are lifted -> Spawn parallel
                 if *child_deg == 0 {
-                    Self::spawn_task(&dag.graph[child_idx], child_idx, tx.clone(), Arc::clone(&self.board));
+                    Self::spawn_task(&dag.graph[child_idx], child_idx, tx.clone(), Arc::clone(&self.board), Arc::clone(&self.registry));
                 }
             }
 
@@ -129,8 +137,10 @@ impl MissionRunner {
         node_idx: NodeIndex,
         tx      : mpsc::Sender<(NodeIndex, Result<String, String>)>,
         board   : Arc<Mutex<Board>>,
+        registry: Arc<AgentRegistry>
     ) {
         let node = node.clone();
+        //let registry_for_task = registry.clone();
         
         tokio::spawn(async move {
             println!("[RUNNER] Launching task: [{}] {}", node.kind, node.title);
@@ -138,66 +148,8 @@ impl MissionRunner {
             // executing logic according to node type
             let result = match node.kind.as_str() {
                 "task" | "subgoal" => {
-                    
-                    // -----------------------------
-                    // call Worker, Lead or Sentinel
-                    // -----------------------------
-                    //tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                    //Ok(format!("Task '{}' successfully done", node.title))
-
-                    // 1. fetch assigned specialized agent and instruction
-                    let socket_path = resolve_worker_socket(&node);
-                    let prompt = node.description.clone().unwrap_or_else(|| node.title.clone());
-
-                    println!("[RUNNER] Dispatching node [{}] to {}", node.id, socket_path);
-
-                    // 2. call specialized agent to handle task
-                    let client = AgentLLM::new(socket_path);
-
-                    let msg_id = format!("{}-{}", "Runner", Utc::now().timestamp_millis());
-                    let tx_board = board.lock().await.tx.clone();
-
-                    // start of stream -> Notif UI via Board
-                    let _ = tx_board.send(BoardEvent::StreamStart {
-                        msg_id: msg_id.clone(),
-                        agent : "Runner".into(),
-                    });
-
-                    // process stream
-                    let mut full_output = String::new();
-                    let stream = client.stream_generate(&prompt);
-                    pin!(stream);   // pin stream on stack to authorize .next()
-                    
-                    while let Some(chunk) = stream.next().await {
-                        full_output.push_str(&chunk);
-
-                        // send each chunk on broadcast channel for UI
-                        let _ = tx_board.send(BoardEvent::StreamChunk {
-                            msg_id: msg_id.clone(),
-                            delta : chunk,
-                        });
-                    }
-
-                    // send end of stream
-                    let _ = tx_board.send(BoardEvent::StreamEnd {
-                        msg_id: msg_id.clone(),
-                    });
-
-                    if full_output.is_empty() {
-                        Err(format!("SpecializedAgent on {} did not send any content.", socket_path))
-                    } else {
-                        println!("[RUNNER] Final code generated for node [{}]", node.id);
-
-                        // Notify final output to Board
-                        let mut b = board.lock().await;
-                        b.publish(BoardMessage {
-                            agent    : "Runner".into(),
-                            content  : format!("Task [{}] completed with result:\n{}\n", node.id, full_output),
-                            timestamp: Utc::now().timestamp_millis() as u64,
-                        }).await;
-
-                        Ok(full_output)
-                    }
+                    let dispatcher = AgentDispatcher::new(registry);
+                    dispatcher.execute(&node, board.clone()).await
                 }
                 _ => Ok("Asset/Goal ignored by runner execution engine".into()), // "assets" or "risks" are only informative at this stage
             };
@@ -207,18 +159,4 @@ impl MissionRunner {
         });
     }
 
-}
-
-// TODO: use a proper HashMap instead of using match
-fn resolve_worker_socket(node: &MissionNode) -> &'static str {
-    match node.worker.as_deref() {
-        Some("coder") => "/tmp/agent_coder.sock",
-        //Some("sentinel") => "/tmp/agent_sentinel.sock",
-        //Some("executor") => "/tmp/agent_executor.sock",
-        // Fallback
-        _ => match node.kind.as_str() {
-            "task" => "/tmp/agent_coder.sock",
-            _ => "/tmp/agent_coder.sock",
-        },
-    }
 }
