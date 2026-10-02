@@ -33,15 +33,29 @@ impl Agent {
 
     pub fn spawn(self) {
         tokio::spawn(async move {
-        
             println!("[AGENT] agent {} running...", self.name);
-            
             self.run().await;
         });
     }
 
     pub async fn run(mut self) {
-        while let Ok(event) = self.rx.recv().await {
+        loop {
+            // explicitly handle lagged and closed messages to avoid panic on .recv()
+            let event = match self.rx.recv().await {
+                Ok(event) => event,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                    eprintln!("[AGENT] WARNING: agent {} skipped {} messages", self.name, skipped);
+                    continue;   // continue instead of panicking
+                },
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    eprintln!("[AGENT] WARNING: agent {} broadcast channel closed", self.name);
+                    break;
+                }
+            };
+
+        //}
+        //while let Ok(event) = self.rx.recv().await {
+
             // Extract message if `NewMessage` event
             let msg = match event {
                 BoardEvent::NewMessage(msg) => {
@@ -60,11 +74,19 @@ impl Agent {
             if msg.content.contains(&format!("!@{}", self.name)) {
                 println!("[AGENT] agent {} aknowledges tag", self.name);
 
+                // extract prompt from buffer
                 let prompt = self.buffer.flush(&self.name);
-                println!("[AGENT] sending to llm service the prompt\n\"{}\"\n", prompt);
+                println!("[AGENT] prompt to be sent to llm service:\n\"{}\"\n", prompt);
 
+                // prepare streaming response
                 let msg_id = format!("{}-{}", self.name, Utc::now().timestamp_millis());
-                let tx = self.board.lock().await.tx.clone();
+                
+                //let tx = self.board.lock().await.tx.clone();
+                // get tx quickly without holding the mutex for too long (to avoid deadlocks)
+                let tx = {
+                    let board_guard = self.board.lock().await;
+                    board_guard.tx.clone()
+                };
 
                 // start of stream -> Notif UI via Board
                 let _ = tx.send(BoardEvent::StreamStart {
@@ -95,7 +117,7 @@ impl Agent {
                 //let response  = self.llm.generate(&prompt).await;
                 //println!("[AGENT] response received:\n{}", response);
 
-                let mut board = self.board.lock().await;
+                let mut board = self.board.lock().await;    //
                 board.publish(BoardMessage {
                     agent    : self.name.clone(),
                     content  : full_response,

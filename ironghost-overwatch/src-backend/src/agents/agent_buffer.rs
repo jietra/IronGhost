@@ -17,7 +17,7 @@ impl AgentBuffer {
         let tags: Vec<&str> = msg.content
             .split_whitespace()
             .filter_map(|word| {
-                if !word.starts_with('@') || word.len() <= 1 {
+                if !word.starts_with("!@") || word.len() <= 1 {
                     return None;
                 }
                 // clean tag (ex: "@Coder," -> "@Coder")
