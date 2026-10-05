@@ -57,12 +57,12 @@ impl MissionRunner {
                     match MissionDag::try_from_mission(&new_mission) {
                         Ok(dag) => {
                             let board_clone: Arc<Mutex<Board>> = board.clone();
+                            let registry_for_mission: Arc<AgentRegistry> = registry.clone();
                             
                             // 5. spawn new execution
-                            let registry_for_mission: Arc<AgentRegistry> = registry.clone();
                             current_task = Some(tokio::spawn(async move {
                                 //let runner = MissionRunner::new(board_clone);
-                                let runner = MissionRunner::new(
+                                let runner: MissionRunner = MissionRunner::new(
                                     board_clone,
                                     registry_for_mission,
                                 );
