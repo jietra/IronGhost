@@ -5,8 +5,12 @@ use futures_util::Stream;
 use futures_util::StreamExt;
 
 use tokio::sync::broadcast::Sender;
+use chrono::Utc;
 
-use crate::core::board::BoardEvent;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use crate::core::board::{Board, BoardEvent};
+use crate::agents::agent_llm::AgentLLM;
 
 pub struct StreamForwarder;
 
@@ -48,5 +52,18 @@ impl StreamForwarder {
         });
 
         full_output
+    }
+
+    pub async fn generate(service: &str, prompt: &str, client: &AgentLLM, board: Arc<Mutex<Board>>) -> String {
+        let stream = client.stream_generate(&prompt);
+        let msg_id  : String = format!("{}-{}", service, Utc::now().timestamp_millis());
+        let tx_board: tokio::sync::broadcast::Sender<BoardEvent> = board.lock().await.tx.clone();
+        Self::forward(
+            stream,
+            tx_board,
+            msg_id,
+            service.into(),
+        )
+        .await
     }
 }

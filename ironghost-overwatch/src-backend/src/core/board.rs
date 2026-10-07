@@ -16,6 +16,34 @@ pub struct MissionNode {
 
     #[serde(default)]
     pub worker     : Option<String>, // E.g.: "coder", "sentinel", "executor", "tool:nmap"
+
+    //#[serde(default)]
+    //pub status     : NodeStatus,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum NodeStatus {
+    Pending,
+
+    Running {
+        started_at: i64,
+    },
+
+    Succeeded {
+        attempts: usize,
+        score: Option<u8>,
+    },
+
+    Failed {
+        attempts: usize,
+        error: String,
+    },
+}
+
+impl Default for NodeStatus {
+    fn default() -> Self {
+        NodeStatus::Pending
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
