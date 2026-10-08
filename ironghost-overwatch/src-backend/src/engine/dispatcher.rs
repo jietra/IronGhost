@@ -38,7 +38,7 @@ impl SentinelVerdict {
         
         format!(
             "Compliance: {}\n\
-            Score: {}/10\n\n\
+            (Score: {}/10)\n\n\
             Missing requirements:\n{}",
             self.compliant,
             self.score,
@@ -178,15 +178,12 @@ impl AgentDispatcher {
                 agent    : "Runner".into(),
                 content  : format!(
                     "Trial {}/{} for node [{}] completed with Sentinel verdict:
-                    \tcompliant: {} ({}/10);
-                    \tmissing requirements: {:?}
+                    \n\n{}
                     \n\nGenerated response:\n{}",
                     task_context.trial,
                     MAX_RETRIES,
                     node.title,
-                    sentinel_verdict.compliant,
-                    sentinel_verdict.score,
-                    sentinel_verdict.missing_requirements,
+                    sentinel_verdict.to_feedback(),
                     coder_full_output,
                 ),
                 timestamp: Utc::now().timestamp_millis() as u64,

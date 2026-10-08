@@ -187,36 +187,45 @@ The repository currently exposes the core infrastructure modules:
                   +-----------------------------------+
                   |      Human Operator (Tauri UI)    |
                   +-----------------+-----------------+
-                                    | (WebSocket)
+                                    |
                                     v
-+-----------------------------------+-----------------------------------+
-|                     IronGhost Overwatch (Rust)                        |
-|   - Mission Graph & State Engine      - Human-in-the-Loop Validation  |
-|   - Multi-Agent Message Router        - Guardrails & Command Sanitizer|
-+-----------------+---------------------------------+-------------------+
-                  |                                 |
-        (Binary over UDS Socket)        (C2 Link + Sentinel filtering)
-                  |                                 |
-                  v                                 v
-+-----------------+-----------------+     +---------+-------------------+
-|      ironghost-services (C++)     |     |   Deterministic Workers     |
-|   - Custom Lean LLM Engine        |     |   - Kali Linux Target VM    |
-|   - Zero-Copy Binary Protocol     |     |   - Isolated Script Exec    |
-+-----------------------------------+     +-----------------------------+
++-----------------------------------+------------------------------------+
+|                     IronGhost Overwatch (Rust)                         |
+|   - Mission Graph & State Engine      - Human-in-the-Loop Validation   |
+|   - Multi-Agent Message Router        - Guardrails & Command Sanitizer |
++-----------------+-------------------------------------+----------------+
+                  |                                     |
+        (Binary over UDS Socket)             (Sentinel filtering)
+                  |                                     |
+                  v                                     v
++-----------------+-----------------+     +-------------+----------------+
+|      ironghost-services (C++)     |     |   ironghost-executor (Rust)  |
+|           (LLM Layer)             |     |       (Execution Layer)      |
++-----------------------------------+     +-------------+----------------+
+                                                        |
+                                                        v
+                                               +--------+----------+
+                                               |  Local / Kali VM  |
+                                               +-------------------+
 ```
-
-> Note: the C2 Link, Sentinel filtering, and deterministic workers are not currently published.
 
 ### 📦 Published Modules
 
-* **`ironghost-overwatch`** *(Rust / Tauri / Svelte)*:
-  * The memory-safe, asynchronous orchestrator.
-  * Manages agent lifecycle, event broadcasting, and mission topology state.
-  * Renders a real-time 3D/2D tactical mission graph and operational chat interface.
-* **`ironghost-services`** *(C++ / Native)*:
-  * High-performance, lean LLM inference service designed for local execution (model agnostic).
-  * Communicates via custom **Binary IPC over Unix Domain Sockets (UDS)** for ultra-low latency and zero-copy performance.
-  > NB: Using different types of llm micro-services is possible but not shown here (e.g. protobuf, gRPC or REST frameworks).
+* **`ironghost-overwatch`** *(Rust / Tauri / Svelte)*
+  * Mission-centric orchestration engine.
+  * Manages Mission Graph lifecycle, agent coordination, validation workflows and human-in-the-loop governance.
+
+* **`ironghost-services`** *(C++ / Native)*
+  * High-performance local LLM services.
+  * Binary IPC over Unix Domain Sockets.
+  * Grammar-constrained outputs with GBNF.
+
+* **`ironghost-executor`** *(Rust)*
+  * Environment-agnostic execution layer.
+  * Decouples execution environments from runtime implementations.
+  * Supports isolated execution targets (currently Local and Kali).
+  * Designed to evolve toward VM provisioning, disposable environments and stronger isolation.
+  * See `ironghost-executor/README.md` for details.
 
 ---
 
@@ -336,7 +345,12 @@ npm run tauri dev
 - [x] Real-time Svelte/Tauri Tactical Overwatch Dashboard
 - [x] Dynamic Mission Knowledge Graph Generation (<mission_state>)
 - [x] Implementation of Mission Graph runner with parallel execution (execution DiGraph)
-- [ ] Integration of Deterministic Kali Linux Execution Workers
+- [x] Introduction of ironghost-executor service
+- [x] Environment / Runtime execution abstraction
+- [x] Local and Kali execution environments
+- [ ] Automatic VM provisioning
+- [ ] Disposable VM environments
+- [ ] Formalized worker execution protocol
 - [ ] Formalized C2 Protocol for Sandboxed Worker Execution
 - [ ] Sentinel policy engine
 - [ ] Mission Graph validator
