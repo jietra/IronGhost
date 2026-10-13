@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::core::board::{Board, MissionNode, BoardMessage};
-use crate::engine::registry::AgentRegistry;
+use crate::config::SystemRegistry;
 
 use crate::agents::agent_llm::AgentLLM;
 use chrono::Utc;
@@ -100,11 +100,11 @@ impl TaskExecutionContext {
 const MAX_RETRIES: usize = 3;
 
 pub struct AgentDispatcher {
-    registry: Arc<AgentRegistry>,
+    registry: Arc<SystemRegistry>,
 }
 
 impl AgentDispatcher {
-    pub fn new(registry: Arc<AgentRegistry>) -> Self {
+    pub fn new(registry: Arc<SystemRegistry>) -> Self {
         Self { registry }
     }
 
@@ -116,14 +116,14 @@ impl AgentDispatcher {
 
         // specialized agent / worker
         let socket_path: &str = self.registry
-            .resolve(node.worker.as_deref().unwrap_or("coder"))
+            .resolve_worker(node.worker.as_deref().unwrap_or("coder"))
             .ok_or_else(|| format!("[DISPATCHER] unknown worker {:?}", node.worker))?;
         let client: AgentLLM = AgentLLM::new(socket_path);
         println!("[DISPATCHER] dispatching node [{}] to {}", node.id, socket_path);
 
         // sentinel
         let sentinel_socket: &str = self.registry
-            .resolve("sentinel-code")
+            .resolve_sentinel("sentinel-code")
             .ok_or_else(|| format!("[DISPATCHER] sentinel not found for worker {:?}", node.worker))?;
         let sentinel_client: AgentLLM = AgentLLM::new(sentinel_socket);
 

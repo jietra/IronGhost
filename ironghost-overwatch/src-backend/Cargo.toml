@@ -31,3 +31,9 @@ async-stream = "0.3"
 #ndarray = "0.16"
 
 petgraph = "0.6"
+
+anyhow = "1"
+walkdir = "2"
+reqwest = { version = "0.12", features = ["json"] }
+async-trait = "0.1"
+dotenvy = "0.15"

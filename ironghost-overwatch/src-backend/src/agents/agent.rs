@@ -41,7 +41,7 @@ impl Agent {
     pub async fn run(mut self) {
         loop {
             // explicitly handle lagged and closed messages to avoid panic on .recv()
-            let event = match self.rx.recv().await {
+            let event: BoardEvent = match self.rx.recv().await {
                 Ok(event) => event,
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
                     eprintln!("[AGENT] WARNING: agent {} skipped {} messages", self.name, skipped);
@@ -53,11 +53,8 @@ impl Agent {
                 }
             };
 
-        //}
-        //while let Ok(event) = self.rx.recv().await {
-
             // Extract message if `NewMessage` event
-            let msg = match event {
+            let msg: BoardMessage = match event {
                 BoardEvent::NewMessage(msg) => {
                     println!("[AGENT] message received by agent {}", self.name);
                     msg
@@ -75,15 +72,14 @@ impl Agent {
                 println!("[AGENT] agent {} aknowledges tag", self.name);
 
                 // extract prompt from buffer
-                let prompt = self.buffer.flush(&self.name);
+                let prompt: String = self.buffer.flush(&self.name);
                 println!("[AGENT] prompt to be sent to llm service:\n\"{}\"\n", prompt);
 
                 // prepare streaming response
-                let msg_id = format!("{}-{}", self.name, Utc::now().timestamp_millis());
+                let msg_id: String = format!("{}-{}", self.name, Utc::now().timestamp_millis());
                 
-                //let tx = self.board.lock().await.tx.clone();
                 // get tx quickly without holding the mutex for too long (to avoid deadlocks)
-                let tx = {
+                let tx: broadcast::Sender<BoardEvent> = {
                     let board_guard = self.board.lock().await;
                     board_guard.tx.clone()
                 };
@@ -95,7 +91,7 @@ impl Agent {
                 });
                 
                 // process stream
-                let mut full_response = String::new();
+                let mut full_response: String = String::new();
                 let llm_stream = self.llm.stream_generate(&prompt);
                 pin!(llm_stream);   // pin stream on stack to authorize .next()
 
@@ -114,10 +110,7 @@ impl Agent {
                     msg_id: msg_id.clone(),
                 });
 
-                //let response  = self.llm.generate(&prompt).await;
-                //println!("[AGENT] response received:\n{}", response);
-
-                let mut board = self.board.lock().await;    //
+                let mut board: tokio::sync::MutexGuard<'_, Board> = self.board.lock().await;    //
                 board.publish(BoardMessage {
                     agent    : self.name.clone(),
                     content  : full_response,

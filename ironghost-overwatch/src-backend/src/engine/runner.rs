@@ -10,16 +10,16 @@ use petgraph::visit::EdgeRef;
 use crate::core::board::{Board, BoardMessage, MissionNode, BoardEvent};
 use crate::engine::dag::MissionDag;
 
-use crate::engine::registry::AgentRegistry;
+use crate::config::SystemRegistry;
 use crate::engine::dispatcher::AgentDispatcher;
 
 pub struct MissionRunner {
     board   : Arc<Mutex<Board>>,
-    registry: Arc<AgentRegistry>,
+    registry: Arc<SystemRegistry>,
 }
 
 impl MissionRunner {
-    pub fn new(board: Arc<Mutex<Board>>, registry: Arc<AgentRegistry>) -> Self {
+    pub fn new(board: Arc<Mutex<Board>>, registry: Arc<SystemRegistry>) -> Self {
         Self {
             board,
             registry,
@@ -29,7 +29,7 @@ impl MissionRunner {
     /// Listen to the Board in background and launch/replace DAG execution
     pub fn spawn_listener(self) -> JoinHandle<()> {
         let board   : Arc<Mutex<Board>>  = self.board.clone();
-        let registry: Arc<AgentRegistry> = self.registry.clone();
+        let registry: Arc<SystemRegistry> = self.registry.clone();
         
         tokio::spawn(async move {
             // 1. Retrieve broadcast receiver
@@ -56,8 +56,8 @@ impl MissionRunner {
                     // 4. compiling Mission into MissionDag (petgraph)
                     match MissionDag::try_from_mission(&new_mission) {
                         Ok(dag) => {
-                            let board_clone: Arc<Mutex<Board>> = board.clone();
-                            let registry_for_mission: Arc<AgentRegistry> = registry.clone();
+                            let board_clone         : Arc<Mutex<Board>>   = board.clone();
+                            let registry_for_mission: Arc<SystemRegistry> = registry.clone();
                             
                             // 5. spawn new execution
                             current_task = Some(tokio::spawn(async move {
@@ -137,7 +137,7 @@ impl MissionRunner {
         node_idx: NodeIndex,
         tx      : mpsc::Sender<(NodeIndex, Result<String, String>)>,
         board   : Arc<Mutex<Board>>,
-        registry: Arc<AgentRegistry>
+        registry: Arc<SystemRegistry>
     ) {
         let node: MissionNode = node.clone();
         

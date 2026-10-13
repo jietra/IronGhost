@@ -18,7 +18,7 @@ pub struct MissionNode {
     pub worker     : Option<String>, // E.g.: "coder", "sentinel", "executor", "tool:nmap"
 
     //#[serde(default)]
-    //pub status     : NodeStatus,
+    //pub status     : NodeStatus,  // placeholder
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -31,12 +31,12 @@ pub enum NodeStatus {
 
     Succeeded {
         attempts: usize,
-        score: Option<u8>,
+        score   : Option<u8>,
     },
 
     Failed {
         attempts: usize,
-        error: String,
+        error   : String,
     },
 }
 
