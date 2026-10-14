@@ -12,7 +12,7 @@ use tokio::sync::Mutex;     // mutex async (block tasks, not threads)
 #[tokio::main]  // macro-attribute launching Tokio runtime with main() as unique entry point (for async: futures...)
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
-    //dotenvy::dotenv().ok();
+    dotenvy::dotenv().ok();
 
     // 1. init board
     let board: Arc<Mutex<Board>> = Arc::new(
@@ -22,7 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 2. init system registry
     let registry: Arc<SystemRegistry> = Arc::new(
-        SystemRegistry::new()
+        SystemRegistry::new()?
     );
     println!("[MAIN] system registry initialized");
 

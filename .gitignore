@@ -13,10 +13,7 @@ ironghost-overwatch/package-lock.json
 ironghost-overwatch/src-front/node_modules
 ironghost-overwatch/src-tauri/gen
 ironghost-overwatch/src-tauri/target
-ironghost-overwatch/src-backend/src/.env
-ironghost-overwatch/src-backend/src/.env.example
-ironghost-overwatch/src-backend/src/artifact_store
-ironghost-overwatch/src-backend/src/recon_tools
+ironghost-overwatch/src-backend/.env
 
 ironghost-executor/target
 ironghost-executor/Cargo.lock

@@ -3,3 +3,5 @@ pub mod agents; // parallel independant agents
 pub mod engine;
 pub mod ui;
 pub mod config;
+pub mod observers;
+pub mod artifact_store;
