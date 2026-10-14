@@ -1,0 +1,25 @@
+artifact_store:
+  root: ./data/artifacts
+
+agents:
+  strategist:
+    socket: /tmp/agent_strategist.sock
+
+  generic:
+    socket: /tmp/agent_generic.sock
+
+workers:
+  coder:
+    socket: /tmp/agent_coder.sock
+
+sentinels:
+  sentinel-code:
+    socket: /tmp/sentinel_code.sock
+
+observers:
+  web_search:
+    provider: brave
+
+executors:
+  executor_orchestrator:
+    socket: /tmp/executor.sock

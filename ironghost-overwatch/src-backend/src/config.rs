@@ -1,11 +1,18 @@
 // src/config.rs
 
-use std::sync::Arc;
-use std::collections::HashMap;
+use std::{
+    fs,
+    path::Path,
+    sync::Arc,
+    collections::HashMap,
+};
 use tokio::sync::{
     Mutex,
     broadcast::Sender
 };
+use serde::Deserialize;
+use anyhow::bail;
+
 use crate::core::board::{
     Board,
     BoardEvent
@@ -24,19 +31,46 @@ use crate::artifact_store::artifact_store::{
     FilesystemArtifactStore
 };
 
+#[derive(Debug, Deserialize)]
+pub struct YamlConfig {
+    pub artifact_store  : ArtifactStoreConfig,
+    pub agents          : HashMap<String, SocketConfig>,
+    pub workers         : HashMap<String, SocketConfig>,
+    pub sentinels       : HashMap<String, SocketConfig>,
+    pub observers       : ObserverConfig,
+    pub executors       : HashMap<String, SocketConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ArtifactStoreConfig {
+    pub root: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SocketConfig {
+    pub socket: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ObserverConfig {
+    pub web_search: WebSearchConfig,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WebSearchConfig {
+    pub provider: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
-    pub artifact_store_root : String,
     pub brave_api_url       : String,
     pub brave_api_key       : String,
 }
 
 impl Config {
     pub fn load() -> anyhow::Result<Self> {
-        //dotenvy::dotenv().ok();
 
         Ok(Self {
-            artifact_store_root : std::env::var("ARTIFACT_STORE_ROOT")?,
             brave_api_url       : std::env::var("BRAVE_API_URL")?,
             brave_api_key       : std::env::var("BRAVE_API_KEY")?,
         })
@@ -73,72 +107,43 @@ pub struct SystemRegistry {
 
 impl SystemRegistry {
 
-    pub fn config(&self) -> &Config {
-        self.config.as_ref()
-    }
+    pub fn config(&self) -> &Config {self.config.as_ref()}
 
-    pub fn new() -> anyhow::Result<Self> {
+    pub fn from_yaml( path: impl AsRef<Path> ) -> anyhow::Result<Self> {
 
-        let config: Arc<Config> = Arc::new(Config::load()?);
+        let yaml    : String        = fs::read_to_string(      path    )?;
+        let cfg     : YamlConfig    = serde_yaml::from_str(    &yaml   )?;
 
-        // reasoning agents
-        let mut agents: HashMap<String, String> = HashMap::new();
-
-        agents.insert(
-            "strategist".into(),
-            "/tmp/agent_strategist.sock".into(),
-        );
-
-        agents.insert(
-            "generic".into(),
-            "/tmp/agent_generic.sock".into(),
-        );
-
-        // specialized agents
-        let mut workers: HashMap<String, String> = HashMap::new();
-
-        workers.insert(
-            "coder".into(),
-            "/tmp/agent_coder.sock".into(),
-        );
-
-        // sentinels
-        let mut sentinels: HashMap<String, String> = HashMap::new();
-
-        sentinels.insert(
-            "sentinel-code".into(),
-            "/tmp/sentinel_code.sock".into(),
-        );
+        // config
+        let config  : Arc<Config>   = Arc::new(Config::load()?);
 
         // observers
-        let observers: ObserverRegistry = ObserverRegistry {
-                file_reader     : FileReader,
-                folder_explorer : FolderExplorer,
-                web_searcher    : Arc::new(
+        let web_searcher = match cfg.observers.web_search.provider.as_str() {
+            "brave" => {
+                Arc::new(
                     BraveWebSearcher::new(config.clone())
-                ),
-            };
-
-        // executors
-        let mut executors: HashMap<String, String> = HashMap::new();
-
-        executors.insert(
-            "executor_orchestrator".into(),
-            "/tmp/executor.sock".into(),
-        );
+                )
+            }
+            provider => bail!("[CONFIG]: Unknown web search provider: {}", provider)
+        };
+        let observers: ObserverRegistry = ObserverRegistry {
+            file_reader     : FileReader,
+            folder_explorer : FolderExplorer,
+            web_searcher    : web_searcher,
+        };
 
         // artifact store
         let artifact_store: Arc<FilesystemArtifactStore> = Arc::new(
-            FilesystemArtifactStore::new(config.artifact_store_root.clone())
+            FilesystemArtifactStore::new(cfg.artifact_store.root)
         );
 
         Ok(Self {
             config,
-            agents,
-            workers,
-            sentinels,
+            agents      : cfg.agents.into_iter().map(|(k,v)| (k, v.socket)).collect(),
+            workers     : cfg.workers.into_iter().map(|(k,v)| (k, v.socket)).collect(),
+            sentinels   : cfg.sentinels.into_iter().map(|(k,v)| (k, v.socket)).collect(),
             observers,
-            executors,
+            executors   : cfg.executors.into_iter().map(|(k,v)| (k, v.socket)).collect(),
             artifact_store,
         })
     }
@@ -172,6 +177,15 @@ impl SystemRegistry {
 
             agent.spawn();
         }
+    }
+
+    // other getters
+    pub fn observer_registry( &self ) -> &ObserverRegistry {
+        &self.observers
+    }
+
+    pub fn artifact_store( &self ) -> Arc<FilesystemArtifactStore> {
+        self.artifact_store.clone()
     }
 
 }

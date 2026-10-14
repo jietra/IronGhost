@@ -22,9 +22,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 2. init system registry
     let registry: Arc<SystemRegistry> = Arc::new(
-        SystemRegistry::new()?
+        SystemRegistry::from_yaml("../../ironghost.yaml")?
     );
     println!("[MAIN] system registry initialized");
+    println!("cwd={}", std::env::current_dir()?.display());
 
     // 3. spawn reasoning agents
     registry.spawn_agents(board.clone()).await;
