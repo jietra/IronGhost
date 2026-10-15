@@ -10,7 +10,7 @@ use crate::config::SystemRegistry;
 use crate::agents::agent_llm::AgentLLM;
 use chrono::Utc;
 
-use crate::engine::stream_forwarder::StreamForwarder;
+use crate::utils::stream_forwarder::StreamForwarder;
 
 use serde::{Deserialize, Serialize};
 

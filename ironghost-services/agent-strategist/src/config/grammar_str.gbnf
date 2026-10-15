@@ -1,0 +1,60 @@
+root ::= strategist_output
+
+strategist_output ::=
+"{" ws "\"investigation_state\"" ws ":" ws investigation_state "," ws "\"mission_graph\"" ws ":" ws mission_graph ws "}"
+
+mission_graph ::=
+"null" | graph
+
+graph ::=
+"{" ws "\"nodes\"" ws ":" ws nodes "," ws "\"edges\"" ws ":" ws edges ws "}"
+
+nodes ::= array
+
+edges ::= array
+
+investigation_state ::=
+"{" ws "\"analytics\"" ws ":" ws string_array "," ws "\"observations\"" ws ":" ws observation_array "," ws "\"hypotheses\"" ws ":" ws hypothesis_array "," ws "\"findings\"" ws ":" ws finding_array "," ws "\"next_move\"" ws ":" ws next_move ws "}"
+
+observation_array ::=
+"[" ws (observation (ws "," ws observation)*)? ws "]"
+
+observation ::= "{" ws "\"statement\"" ws ":" ws string "," ws "\"evidence_ids\"" ws ":" ws string_array ws "}"
+
+hypothesis_array ::=
+"[" ws (hypothesis (ws "," ws hypothesis)*)? ws "]"
+
+hypothesis ::= "{" ws "\"statement\"" ws ":" ws string "," ws "\"confidence\"" ws ":" ws integer "," ws "\"evidence_ids\"" ws ":" ws string_array ws "}"
+
+finding_array ::=
+"[" ws (finding (ws "," ws finding)*)? ws "]"
+
+finding ::= "{" ws "\"statement\"" ws ":" ws string "," ws "\"severity\"" ws ":" ws severity "," ws "\"evidence_ids\"" ws ":" ws string_array ws "}"
+
+severity ::= "\"Low\"" | "\"Medium\"" | "\"High\"" | "\"Critical\"" | "\"NA\""
+
+next_move ::=
+"{" ws "\"intention\"" ws ":" ws string "," ws "\"action\"" ws ":" ws action "," ws "\"target\"" ws ":" ws nullable_string ws "}"
+
+action ::=
+"\"FolderExplorer\"" | "\"FileReader\"" | "\"WebSearcher\"" | "\"WebReader\"" | "\"Finish\""
+
+string_array ::= "[" ws (string (ws "," ws string)*)? ws "]"
+
+nullable_string ::= string | "null"
+
+array ::= "[" ws (json_value (ws "," ws json_value)*)? ws "]"
+
+json_value ::= string | integer | array | object | "null" | "true" | "false"
+
+object ::= "{" ws "}"
+
+string ::= "\"" chars "\""
+
+integer ::= [0-9]+
+
+chars ::= ([^"\\] | escaped)*
+
+escaped ::= "\\" ["\\/bfnrt]
+
+ws ::= [ \t\n\r]*

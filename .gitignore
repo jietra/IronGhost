@@ -26,6 +26,7 @@ ironghost-services/agent-strategist/build
 ironghost-services/agent-strategist/.env
 ironghost-services/agent-strategist/logs
 
+#ironghost-services/agent-generic/
 ironghost-services/agent-generic/build
 ironghost-services/agent-generic/.env
 ironghost-services/agent-generic/logs
@@ -33,6 +34,11 @@ ironghost-services/agent-generic/logs
 ironghost-services/spec-agent-coder/build
 ironghost-services/spec-agent-coder/.env
 ironghost-services/spec-agent-coder/logs
+
+ironghost-services/spec-agent-code-inspector/
+ironghost-services/spec-agent-code-inspector/build
+ironghost-services/spec-agent-code-inspector/.env
+ironghost-services/spec-agent-code-inspector/logs
 
 ironghost-services/sentinel-code/build
 ironghost-services/sentinel-code/.env

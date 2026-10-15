@@ -75,10 +75,27 @@ pub struct Board {
 #[derive(Clone, Serialize)]
 #[serde(tag = "type", content = "payload")]
 pub enum BoardEvent {
+
     #[serde(rename = "message")]
-    NewMessage(BoardMessage),
+    NewMessage(
+        BoardMessage
+    ),
+    
     #[serde(rename = "mission_state")]
-    MissionState(Mission),
+    MissionState(
+        Mission
+    ),
+
+    #[serde(rename = "artifact_created")]
+    ArtifactCreated {
+        mission_id : String,
+        artifact_id: String,
+    },
+    
+    #[serde(rename = "investigation_state_updated")]
+    InvestigationStateUpdated {
+        mission_id: String,
+    },
 
     StreamStart { msg_id: String, agent: String },
     StreamChunk { msg_id: String, delta: String },

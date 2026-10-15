@@ -1,11 +1,13 @@
-use crate::core::board::{BoardMessage, BoardEvent, Board};
+// src/agents/agent.rs
+
+use crate::core::board::{BoardMessage, BoardEvent, Board, Mission};
 use crate::agents::agent_buffer::AgentBuffer;
 use crate::agents::agent_llm::AgentLLM;
+use crate::utils::stream_forwarder::StreamForwarder;
+
 use std::sync::Arc;
-use tokio::sync::{Mutex, broadcast};
-use tokio::pin;
+use tokio::sync::{Mutex, broadcast, MutexGuard};
 use chrono::Utc;
-use futures_util::StreamExt;        // needed for .next()
 
 pub struct Agent {
     pub name  : String,                             // agent's id
@@ -22,6 +24,7 @@ impl Agent {
         rx   : broadcast::Receiver<BoardEvent>,
         llm  : AgentLLM,
     ) -> Self {
+
         Self {
             name  : name.to_string(),
             buffer: AgentBuffer::new(),
@@ -29,94 +32,115 @@ impl Agent {
             llm,
             board,
         }
+
     }
 
     pub fn spawn(self) {
         tokio::spawn(async move {
             println!("[AGENT] agent {} running...", self.name);
+
             self.run().await;
         });
     }
 
     pub async fn run(mut self) {
         loop {
-            // explicitly handle lagged and closed messages to avoid panic on .recv()
-            let event: BoardEvent = match self.rx.recv().await {
-                Ok(event) => event,
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                    eprintln!("[AGENT] WARNING: agent {} skipped {} messages", self.name, skipped);
-                    continue;   // continue instead of panicking
-                },
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                    eprintln!("[AGENT] WARNING: agent {} broadcast channel closed", self.name);
-                    break;
-                }
-            };
+            let Some(event) = self.recv_event().await
+                else { continue; };
 
-            // Extract message if `NewMessage` event
-            let msg: BoardMessage = match event {
-                BoardEvent::NewMessage(msg) => {
-                    println!("[AGENT] message received by agent {}", self.name);
-                    msg
-                },
-                BoardEvent::MissionState(_) => continue,    // ignored for now
-                BoardEvent::StreamStart { .. } | BoardEvent::StreamChunk { .. } | BoardEvent::StreamEnd { .. } => continue, // ignore stream from other agents
-            };
+            self.handle_event(event).await;
+        }
+    }
 
-            // ignore own messages
-            if msg.agent == self.name { continue; }
+    async fn recv_event( &mut self ) -> Option<BoardEvent> {
 
-            self.buffer.push( msg.clone() );
+        match self.rx.recv().await {
 
-            if msg.content.contains(&format!("!@{}", self.name)) {
-                println!("[AGENT] agent {} aknowledges tag", self.name);
+            Ok(event) =>
+                Some(event),
 
-                // extract prompt from buffer
-                let prompt: String = self.buffer.flush(&self.name);
-                println!("[AGENT] prompt to be sent to llm service:\n\"{}\"\n", prompt);
+            Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                eprintln!("[AGENT] WARNING: agent {} skipped {} messages", self.name, skipped);
+                None
+            }
 
-                // prepare streaming response
-                let msg_id: String = format!("{}-{}", self.name, Utc::now().timestamp_millis());
-                
-                // get tx quickly without holding the mutex for too long (to avoid deadlocks)
-                let tx: broadcast::Sender<BoardEvent> = {
-                    let board_guard = self.board.lock().await;
-                    board_guard.tx.clone()
-                };
-
-                // start of stream -> Notif UI via Board
-                let _ = tx.send(BoardEvent::StreamStart {
-                    msg_id: msg_id.clone(),
-                    agent : self.name.clone(),
-                });
-                
-                // process stream
-                let mut full_response: String = String::new();
-                let llm_stream = self.llm.stream_generate(&prompt);
-                pin!(llm_stream);   // pin stream on stack to authorize .next()
-
-                while let Some(chunk) = llm_stream.next().await {
-                    full_response.push_str(&chunk);
-
-                    // send each chunk on broadcast channel for UI
-                    let _ = tx.send(BoardEvent::StreamChunk {
-                        msg_id: msg_id.clone(),
-                        delta : chunk,
-                    });
-                }
-
-                // end of stream
-                let _ = tx.send(BoardEvent::StreamEnd {
-                    msg_id: msg_id.clone(),
-                });
-
-                let mut board: tokio::sync::MutexGuard<'_, Board> = self.board.lock().await;    //
-                board.publish(BoardMessage {
-                    agent    : self.name.clone(),
-                    content  : full_response,
-                    timestamp: Utc::now().timestamp_millis() as u64,
-                }).await;
+            Err(broadcast::error::RecvError::Closed) => {
+                eprintln!("[AGENT] WARNING: agent {} broadcast channel closed", self.name);
+                None
             }
         }
+    }
+
+    async fn handle_event( &mut self, event: BoardEvent ) {
+
+        match event {
+
+            BoardEvent::NewMessage(msg) =>
+                self.on_message(msg).await,
+
+            BoardEvent::MissionState(mission) =>
+                self.on_mission_state(mission).await,
+
+            BoardEvent::ArtifactCreated {mission_id, artifact_id} =>
+                self.on_artifact_created(
+                    mission_id,
+                    artifact_id,
+                ).await,
+
+            BoardEvent::InvestigationStateUpdated {mission_id} =>
+                self.on_investigation_updated(
+                    mission_id
+                ).await,
+
+            BoardEvent::StreamStart { .. }
+            | BoardEvent::StreamChunk { .. }
+            | BoardEvent::StreamEnd { .. } => {}
+        }
+    }
+
+    async fn on_message( &mut self, msg: BoardMessage ) {
+        if msg.agent == self.name { return; }
+
+        self.buffer.push( msg.clone() );
+
+        if msg.content.contains(&format!("!@{}", self.name)) {
+
+            println!("[AGENT] agent {} aknowledges tag", self.name);
+            
+            // extract prompt from buffer
+            let prompt: String = self.buffer.flush(&self.name);
+
+            println!("[AGENT] prompt to be sent to llm service:\n\"{}\"\n", prompt);
+
+            // call service
+            let full_response: String = StreamForwarder::generate(
+                &self.name,
+                &prompt,
+                &self.llm,
+                self.board.clone(),
+            ).await;
+            
+            // publish final output
+            let mut board: MutexGuard<'_, Board> = self.board.lock().await;    //
+            board.publish(BoardMessage {
+                agent    : self.name.clone(),
+                content  : full_response,
+                timestamp: Utc::now().timestamp_millis() as u64,
+            }).await;
+        }
+    }
+
+    async fn on_mission_state( &mut self, mission: Mission) {
+        return;
+    }
+
+    async fn on_artifact_created( &mut self, mission_id: String, artifact_id: String) {
+        // TODO
+        return;
+    }
+
+    async fn on_investigation_updated( &mut self, mission_id: String) {
+        // TODO
+        return;
     }
 }

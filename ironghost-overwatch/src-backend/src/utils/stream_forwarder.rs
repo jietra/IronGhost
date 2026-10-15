@@ -8,7 +8,7 @@ use tokio::sync::broadcast::Sender;
 use chrono::Utc;
 
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, MutexGuard};
 use crate::core::board::{Board, BoardEvent};
 use crate::agents::agent_llm::AgentLLM;
 
@@ -57,7 +57,10 @@ impl StreamForwarder {
     pub async fn generate(service: &str, prompt: &str, client: &AgentLLM, board: Arc<Mutex<Board>>) -> String {
         let stream = client.stream_generate(&prompt);
         let msg_id  : String = format!("{}-{}", service, Utc::now().timestamp_millis());
-        let tx_board: tokio::sync::broadcast::Sender<BoardEvent> = board.lock().await.tx.clone();
+        let tx_board: Sender<BoardEvent> = {
+            let board_guard: MutexGuard<'_, Board> = board.lock().await;
+            board_guard.tx.clone()
+        };
         Self::forward(
             stream,
             tx_board,
