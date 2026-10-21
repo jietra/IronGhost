@@ -1,21 +1,41 @@
-<!--<script lang="ts">-->
-<script>
+<script lang="ts">
   import { onMount }  from "svelte";
-  import   Message    from "./Message.svelte";
+  import Message      from "./Message.svelte";
   import MissionGraph from "./MissionGraph.svelte";
 
-  let messages    = [];
-  let container;
-  let draft       = "";
-  let ws;
-  let mission = { nodes: [], edges: [] };
-  let activeStreams = {};
+  // Define TypeScript interfaces
+  interface MessageItem {
+    agent     : string;
+    content   : string;
+    timestamp : number;
+    //severity  : string;
+    //msg_id?   : string;
+  }
+
+  interface GraphData {
+    nodes: any[];
+    edges: any[];
+  }
+
+  interface ActiveStreamItem {
+    msg_id    : string;
+    agent     : string;
+    content   : string;
+    timestamp : number;
+  }
+
+  let messages      : MessageItem[]                     = $state([]);
+  let container     : HTMLDivElement | undefined        = $state();
+  let draft         : string                            = $state("");
+  let ws            : WebSocket | undefined             = $state();
+  let mission_graph : GraphData                         = $state({ nodes: [], edges: [] });
+  let activeStreams : Record<string, ActiveStreamItem>  = $state({});
 
   onMount(() => {
     try {
       ws           = new WebSocket("ws://127.0.0.1:9000");
-      ws.onopen    = ()      => { ws.send(JSON.stringify({ type: "get_history" })); };
-      ws.onmessage = (event) => {
+      ws.onopen    = () => { ws?.send(JSON.stringify({ type: "get_history" })); };
+      ws.onmessage = (event: MessageEvent) => {
         console.log("WS message:", event.data);
 
         // For auto-scroll (blocked when not at the bottom)
@@ -32,11 +52,11 @@
             break;
 
           case "mission_state":
-            mission = data.payload;
+            mission_graph = data.payload;
             break;
 
           case "message":
-            messages = [...messages, data.payload];
+            messages.push(data.payload);
             break;
 
           case "StreamStart":
@@ -46,19 +66,16 @@
               content  : "",
               timestamp: Date.now()
             };
-            activeStreams = activeStreams;
             break;
 
           case "StreamChunk":
             if (activeStreams[data.payload.msg_id]) {
               activeStreams[data.payload.msg_id].content += data.payload.delta;
-              activeStreams = activeStreams;
             }
             break;
 
           case "StreamEnd":
             delete activeStreams[data.payload.msg_id];
-            activeStreams = activeStreams;
             break;
 
           default:
@@ -68,7 +85,9 @@
 
         // Auto-scroll only when user is at bottom
         if (atBottom && container) {
-          setTimeout( () => { container.scrollTop = container.scrollHeight; }, 0 );
+          setTimeout(() => { 
+            if (container) container.scrollTop = container.scrollHeight; 
+          }, 0);
         }
       };
     } catch (err) {
@@ -79,17 +98,17 @@
   function sendMessage() {
     if (!draft.trim()) return;
 
-    const msgObj = {
+    const msgObj: MessageItem = {
       agent     : "Operator",
       content   : draft,
       timestamp : Date.now(),
-      severity  : "operator"
+      //severity  : "operator"
     };
 
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify( msgObj ));
     } else {
-      messages = [...messages, msgObj];
+      messages.push(msgObj);
     }
 
     // clear input text area
@@ -100,9 +119,8 @@
       if (container) {
         container.scrollTop = container.scrollHeight;
       }
-    },0);
+    }, 0);
   }
-
 </script>
 
 <style>
@@ -177,15 +195,13 @@
 
   /* Left Column: Feed & Input */
   .left {
-    flex          : 1.2; /*2 1 0;*/
+    flex          : 1.2;
     min-width     : 0;
     display       : flex;
     flex-direction: column;
-
     background    : rgba(10, 15, 26, 0.6);
     border-right  : 1px solid rgba(255, 255, 255, 0.07);
     position      : relative;
-
     overflow-y    : auto;
   }
 
@@ -219,7 +235,7 @@
     border-radius: 3px;
   }
 
-  /* Input Zone inside Left Column */
+  /* Input Zone */
   .input-area {
     padding     : 14px 16px;
     background  : rgba(13, 19, 33, 0.95);
@@ -266,16 +282,14 @@
     box-shadow: 0 0 20px rgba(0, 240, 255, 0.6);
   }
 
-  /* Right Column: Mission Graph Visualizer */
+  /* Right Column */
   .right {   
-    flex          : 1.8; /*1 1 0;*/
+    flex          : 1.8;
     min-width     : 0;
     display       : flex;
     flex-direction: column;
-    
     background    : #060911;
     position      : relative;
-
     border-left   : 1px solid #111;
   }
 
@@ -300,7 +314,7 @@
     </div>
     <div class="status-badge">
       <span class="dot"></span>
-      AGENTS ACTIVE ({mission.nodes.length} NODES)
+      AGENTS ACTIVE ({mission_graph.nodes.length} NODES)
     </div>
   </header>
 
@@ -314,13 +328,13 @@
       </div>
 
       <div class="scroll-area" bind:this={ container }>
-        { #each messages as m }
-          <Message msg={ m } />
-        { /each }
+        {#each messages as m}
+          <Message msg={m} />
+        {/each}
 
         <!-- Streaming messages -->
         {#each Object.values(activeStreams) as stream (stream.msg_id)}
-          <Message 
+          <Message
             msg={{
               agent: stream.agent,
               content: stream.content + "▌",
@@ -332,15 +346,14 @@
       </div>
 
       <div class="input-area">
-        <input
-          type        ="text"
-          bind:value  ={ draft }
-          placeholder ="Message"
-          name        ="Operator_Instruction"
-          on:keydown  ={ (e) => e.key === 'Enter' && sendMessage() }
+        <input 
+          bind:value={draft} 
+          type="text" 
+          placeholder="Enter command..." 
+          onkeydown={(e) => e.key === 'Enter' && sendMessage()} 
         />
-        <button on:click={ sendMessage }>SEND</button>
-      </div>      
+        <button onclick={sendMessage}>SEND</button>
+      </div>
     </div>
 
     <!-- Right Panel: Graph -->
@@ -350,9 +363,9 @@
         <span>REALTIME GRAPH</span>
       </div>
       <div class="graph-wrapper">
-        { #if typeof mission === "object" }
-          <MissionGraph { mission } />
-        { /if }
+        {#if typeof mission_graph === "object"}
+          <MissionGraph mission_graph={mission_graph} />
+        {/if}
       </div>
     </div>
   </div>

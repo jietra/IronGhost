@@ -6,7 +6,3 @@ fn main() {
         .run(tauri::generate_context!())
         .expect("error running tauri");
 }
-
-/*fn main() {
-  app_lib::run();
-}*/

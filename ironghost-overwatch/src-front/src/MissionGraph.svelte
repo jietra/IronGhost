@@ -1,12 +1,39 @@
-<script>
+<script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import ForceGraph from 'force-graph';
+  import ForceGraph, { type NodeObject } from 'force-graph';
 
-  export let mission;
+  // 1. TypeScript interfaces for tactical graph
+  interface GraphNode {
+    id    : string;
+    title : string;
+    kind  : 'goal' | 'subgoal' | 'task' | 'asset' | 'vuln' | 'risk';
+  }
 
-  let graphEl;
-  let graphInstance  = null;
-  let resizeObserver = null;
+  interface GraphEdge {
+    from    : string;
+    to      : string;
+    relation: string;
+  }
+
+  interface MissionGraphData {
+    nodes: GraphNode[];
+    edges: GraphEdge[];
+  }
+
+  // Extend NodeObject type
+  interface CustomNode extends NodeObject {
+    id  : string;
+    name: string;
+    kind: keyof typeof KIND_COLORS;
+    val : number;
+  }
+
+  // 2. Retrieve (Props)
+  let { mission_graph }: { mission_graph: MissionGraphData } = $props();
+
+  let graphEl       : HTMLDivElement | undefined  = $state();
+  let graphInstance : any                         = null;
+  let resizeObserver: ResizeObserver | null       = null;
 
   const KIND_COLORS = {
     goal    : '#00f0ff',        // Cyan (luminous)
@@ -17,73 +44,87 @@
     risk    : '#ef4444'         // Red (alert)
   };
 
-  function handleResetView() {
+  function handleResetView(): void {
     if (graphInstance) {
-      // Recenter and adjust zoom to fit view (100px padding, 400ms lasting time)
       graphInstance.zoomToFit(400, 100);
     }
   }
 
-  function initGraph() {
-    if (!graphEl || !mission) return;
+  // Extract data structure
+  function formatGraphData() {
+    if (!mission_graph || !Array.isArray(mission_graph.nodes)) {
+      return { nodes: [], links: [] };
+    }
+    return {
+      nodes: mission_graph.nodes.map(n => ({
+        id  : n.id,
+        name: n.title,
+        kind: n.kind,
+        val : n.kind === 'goal' ? 3 : n.kind === 'subgoal' ? 2 : 1
+      })),
+      links: mission_graph.edges.map(e => ({
+        source: e.from,
+        target: e.to,
+        label : e.relation
+      }))
+    };
+  }
+
+  function initGraph(): void {
+    if (!graphEl || !mission_graph) return;
 
     const width  = graphEl.clientWidth  || 800;
     const height = graphEl.clientHeight || 600;
 
-    // Destroy previous instance if any
     if (graphInstance) {
+      // @ts-ignore - Access force-graph internal destructor
       graphInstance._destructor?.();
     }
 
-    graphInstance = ForceGraph()(graphEl)
+    graphInstance = (ForceGraph as any)()(graphEl)
       .width(width)
       .height(height)
       .backgroundColor('#060911')
-      .graphData({
-        nodes: mission.nodes.map(n => ({
-          id  : n.id,
-          name: n.title,
-          kind: n.kind,
-          val : n.kind === 'goal' ? 3 : n.kind === 'subgoal' ? 2 : 1
-        })),
-        links: mission.edges.map(e => ({
-          source: e.from,
-          target: e.to,
-          label : e.relation
-        }))
-      })
-      // --- REGULATE NODE SIZES & SPACING ---
+      .graphData(formatGraphData())
       .nodeRelSize(1)
-      .nodeColor(node => KIND_COLORS[node.kind] || '#94a3b8')
+      .nodeColor((node: any) => {
+        const n = node as CustomNode;
+        return KIND_COLORS[n.kind] || '#94a3b8';
+      })
       .nodeVal('val')
-      .nodeLabel(node => `
-        <div style="
-          background: rgba(13, 19, 33, 0.95); 
-          border: 1px solid ${KIND_COLORS[node.kind] || '#00f0ff'}; 
-          padding: 6px 10px; 
-          border-radius: 6px; 
-          font-family: monospace; 
-          font-size: 0.75rem;
-          color: #fff;
-          box-shadow: 0 0 10px rgba(0,0,0,0.5);
-        ">
-          <strong style="color: ${KIND_COLORS[node.kind] || '#00f0ff'};">[${node.kind.toUpperCase()}]</strong> ${node.name}
-        </div>
-      `)
-      // Custom Canvas Rendering for tags under each points
-      .nodeCanvasObject((node, ctx, globalScale) => {
-        const label    = node.name;
+      .nodeLabel((node: any) => {
+        const n = node as CustomNode;
+        return `
+          <div style="
+            background: rgba(13, 19, 33, 0.95); 
+            border: 1px solid ${KIND_COLORS[n.kind] || '#00f0ff'}; 
+            padding: 6px 10px; 
+            border-radius: 6px; 
+            font-family: monospace; 
+            font-size: 0.75rem;
+            color: #fff;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+          ">
+            <strong style="color: ${KIND_COLORS[n.kind] || '#00f0ff'};">[${n.kind.toUpperCase()}]</strong> ${n.name}
+          </div>
+        `;
+      })
+      .nodeCanvasObject((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
+        const n = node as CustomNode;
+        if (n.x === undefined || n.y === undefined) return;
+
+        const label    = n.name;
         const fontSize = 11 / globalScale;
-        const radius   = node.kind === 'goal' ? 5 : 3.5;
+        const radius   = n.kind === 'goal' ? 5 : 3.5;
 
         // Node shape (small point)
         ctx.beginPath();
-        ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
-        ctx.fillStyle = KIND_COLORS[node.kind] || '#94a3b8';
+        ctx.arc(n.x, n.y, radius, 0, 2 * Math.PI, false);
+        ctx.fillStyle = KIND_COLORS[n.kind] || '#94a3b8';
         ctx.fill();
 
         // Glow neon (point edge)
-        ctx.shadowColor = KIND_COLORS[node.kind] || '#00f0ff';
+        ctx.shadowColor = KIND_COLORS[n.kind] || '#00f0ff';
         ctx.shadowBlur  = 6;
         ctx.lineWidth   = 1 / globalScale;
         ctx.strokeStyle = '#ffffff';
@@ -96,7 +137,7 @@
           ctx.textAlign    = 'center';
           ctx.textBaseline = 'middle';
           ctx.fillStyle    = '#cbd5e1';
-          ctx.fillText(label, node.x, node.y + radius + 8);
+          ctx.fillText(label, n.x, n.y + radius + 8);
         }
       })
       // --- LINKS & FORCES ---
@@ -109,17 +150,15 @@
       .linkDirectionalParticleSpeed(0.004)
       .linkDirectionalParticleWidth(1.5)
       .linkDirectionalParticleColor(() => '#00f0ff')
-      .linkLabel(link => `<span style="color: #94a3b8; font-family: monospace; font-size: 0.7rem;">${link.label}</span>`);
+      .linkLabel((link: any) => `<span style="color: #94a3b8; font-family: monospace; font-size: 0.7rem;">${link.label}</span>`);
 
     // Space nodes from one another
-    graphInstance.d3Force( 'charge' ).strength( -320 );
-    graphInstance.d3Force( 'link'   ).distance(   90 );
+    graphInstance.d3Force( 'charge' )?.strength( -320 );
+    graphInstance.d3Force( 'link'   )?.distance( 90   );
 
     // Auto-fit init after forces stabilisation
     setTimeout(() => {
-      if (graphInstance) {
-        graphInstance.zoomToFit(400, 100);
-      }
+      if (graphInstance) graphInstance.zoomToFit(400, 100);
     }, 500);
 
     // Dynamic canvas resizing
@@ -141,30 +180,20 @@
 
   onDestroy(() => {
     if (resizeObserver) resizeObserver.disconnect();
+    // @ts-ignore
     if (graphInstance) graphInstance._destructor?.();
   });
 
   // Graph reactive update
-  $: if (graphInstance && mission && Array.isArray(mission.nodes)) {
-    graphInstance.graphData({
-      nodes: mission.nodes.map(n => ({
-        id  : n.id,
-        name: n.title,
-        kind: n.kind,
-        val : n.kind === 'goal' ? 3 : n.kind === 'subgoal' ? 2 : 1
-      })),
-      links: mission.edges.map(e => ({
-        source: e.from,
-        target: e.to,
-        label : e.relation
-      }))
-    });
+  $effect(() => {
+    if (graphInstance && mission_graph && Array.isArray(mission_graph.nodes)) {
+      graphInstance.graphData(formatGraphData());
 
-    // Re-fit
-    setTimeout(() => {
-      graphInstance?.zoomToFit(400, 100);
-    }, 300);
-  }
+      setTimeout(() => {
+        graphInstance?.zoomToFit(400, 100);
+      }, 300);
+    }
+  });
 </script>
 
 <style>
@@ -247,7 +276,7 @@
 
 <div class="wrapper">
   <!-- Action button -->
-  <button class="reset-btn" on:click={handleResetView} title="Recentrer le graphe">
+  <button class="reset-btn" onclick={handleResetView} title="Center graph">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
       <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
     </svg>

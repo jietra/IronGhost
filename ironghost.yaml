@@ -1,6 +1,10 @@
 artifact_store:
   root: ./data/artifacts
 
+source_store:
+  root: ./data/sources
+  max_size_mb: 10
+
 agents:
   strategist:
     socket: /tmp/agent_strategist.sock

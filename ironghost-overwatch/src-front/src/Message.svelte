@@ -1,20 +1,42 @@
-<script>
+<script lang="ts">
   import { marked } from "marked";
 
-  export let msg;
-  export let isStreaming = false;
+  // 1. Define TypeScript interfaces
+  interface MessageItem {
+    agent     : string;
+    content   : string;
+    timestamp : number;
+    //severity  : string;
+  }
 
-  let parsed = { think: null, mission: null, final: "" };
+  interface ParsedMessage {
+    think   : string | null;
+    mission : string | null;
+    final   : string;
+  }
 
-  function splitMessage(raw = "") {
+  // 2. Retrieve (Props)
+  let {
+    msg, 
+    isStreaming = false 
+  }: { 
+    msg         : MessageItem; 
+    isStreaming?: boolean 
+  } = $props();
+
+  // (Accordions)
+  let showThink   = $state(true);
+  let showMission = $state(true);
+
+  function splitMessage(raw: string = ""): ParsedMessage {
     if (typeof raw !== "string") raw = "";
 
     // extract <think> block
-    const thinkMatch = raw.match( /<think>([\s\S]*?)(?:<\/think>|$)/i );
+    const thinkMatch = raw.match(/<think>([\s\S]*?)(?:<\/think>|$)/i);
     const think      = thinkMatch ? thinkMatch[1].trim() : null;
 
     // extract <mission_state> block
-    const missionMatch = raw.match( /<mission_state>([\s\S]*?)(?:<\/mission_state>|$)/i );
+    const missionMatch = raw.match(/<mission_state>([\s\S]*?)(?:<\/mission_state>|$)/i);
     let mission = null;
     if (missionMatch && missionMatch[1].trim()) {
       try {
@@ -33,20 +55,20 @@
     return { think, mission, final };
   }
 
-  $: parsed = splitMessage(msg.content || "");
+  let parsed = $derived(splitMessage(msg.content || ""));
 
-  function formatTime( ts ) {
+  function formatTime(ts: number): string {
     if (!ts) return "";
     return new Date( ts ).toLocaleTimeString( [], { hour: '2-digit', minute: '2-digit', second: '2-digit' } );
   }
 
-  function roleColor( agent = "" ) {
+  function roleColor(agent: string = ""): string {
     switch ( agent.toLowerCase() ) {
       case "strategist"     : return "#a855f7"; // Purple (neon)
       case "coder"          : return "#4fc3f7";
       case "generic"        : return "#81c784";
       case "operator"       : return "#00f0ff"; // Cyan (luminous)
-      case "reconagent"     : return "#3b82f6"; // Blue (neon)
+      case "reconagent"     : return "#3b82f6"; // Navy blue
       case "vulnscanner"    : return "#f59e0b"; // Amber / Alert
       case "exploitagent"   : return "#ef4444"; // Red (alert)
       case "soc-analyst"    : return "#10b981"; // Green (emerald)
@@ -254,21 +276,6 @@
       text-shadow: 0 0 8px #00f0ff;
     }
   }
-  /*
-  :global(.blinking-cursor) {
-    display: inline-block;
-    color: #00f0ff;
-    font-weight: bold;
-    margin-left: 2px;
-    animation: blink 0.8s steps(2, start) infinite;
-    text-shadow: 0 0 8px rgba(0, 240, 255, 0.8);
-  }
-  @keyframes blink {
-    to {
-      visibility: hidden;
-    }
-  }
-  */
 
   /* Global style for Markdown content */
   :global(.content p) {
@@ -322,12 +329,14 @@
         </details>
       {/if}
 
-      {@html marked(parsed.final)}
+      {#if parsed.final}
+        {@html marked.parse(parsed.final)}
+      {/if}
 
       {#if parsed.mission}
         <details class="mission-box" open={isStreaming}>
           <summary class="mission-summary">
-            🗺️ // MISSION GRAPH PAYLOAD (UPDATED)
+            🗺️ // MISSION GRAPH PAYLOAD
           </summary>
           <div class="mission-body">
             <pre><code>{parsed.mission}</code></pre>

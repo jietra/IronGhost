@@ -1,13 +1,17 @@
 // src/agents/agent.rs
 
-use crate::core::board::{BoardMessage, BoardEvent, Board, Mission};
+use crate::core::board::{BoardMessage, BoardEvent, Board};
+use crate::core::mission::Mission;
 use crate::agents::agent_buffer::AgentBuffer;
 use crate::agents::agent_llm::AgentLLM;
+use crate::core::mission_assessment::{Action, AssessmentPromptBuilder, InvestigationArtifact, NextMove, ObserverOutput};
 use crate::utils::stream_forwarder::StreamForwarder;
+use crate::stores::source_store::FolderTree;
 
 use std::sync::Arc;
 use tokio::sync::{Mutex, broadcast, MutexGuard};
 use chrono::Utc;
+use anyhow::Result;
 
 pub struct Agent {
     pub name  : String,                             // agent's id
@@ -78,23 +82,17 @@ impl Agent {
             BoardEvent::NewMessage(msg) =>
                 self.on_message(msg).await,
 
-            BoardEvent::MissionState(mission) =>
-                self.on_mission_state(mission).await,
-
-            BoardEvent::ArtifactCreated {mission_id, artifact_id} =>
-                self.on_artifact_created(
-                    mission_id,
-                    artifact_id,
-                ).await,
-
-            BoardEvent::InvestigationStateUpdated {mission_id} =>
-                self.on_investigation_updated(
-                    mission_id
-                ).await,
+            BoardEvent::DispatchCommand{ mission_id, to, payload } => {
+                if let Err(e) = self.on_command(mission_id, to, payload).await {
+                    eprintln!("[AGENT] ERROR, command failed: {}", e);
+                }
+            }
 
             BoardEvent::StreamStart { .. }
             | BoardEvent::StreamChunk { .. }
             | BoardEvent::StreamEnd { .. } => {}
+
+            _ => {}
         }
     }
 
@@ -130,13 +128,192 @@ impl Agent {
         }
     }
 
-    async fn on_mission_state( &mut self, mission: Mission) {
-        return;
+    async fn on_command( &mut self, mission_id: String, to: String, payload: String ) -> Result<()> {
+        if self.name != to { return Ok(()); }
+
+        println!("[AGENT] Agent {}, receiving command: {}", self.name, payload);
+
+        match payload.as_str() {
+
+            "!Initiate_Mission" => {
+                
+                println!("[AGENT] Agent {}, initiating mission: {}", self.name, mission_id);
+                
+                self.refresh_source_tree().await?;
+                
+                self.launch_mission_assessment(mission_id).await?;
+
+            }
+
+            _ => {}
+        }
+
+        Ok(())
+
+
+        // send prompt + source_store.tree()
+
+    }
+
+    async fn refresh_source_tree( &mut self ) -> Result<()> {
+
+        let source_tree: FolderTree = {
+            let board: MutexGuard<'_, Board> = self.board.lock().await;
+
+            board
+                .registry
+                .observer_registry()
+                .folder_explorer
+                .execute()?
+        };
+
+        let source_tree_list: String = source_tree.to_path_listing();
+
+        println!("[AGENT] updated mission tree list:\n {}", source_tree_list);
+
+        {
+            let mut board: MutexGuard<'_, Board> = self.board.lock().await;
+
+            board.update_source_tree_list(source_tree_list);
+        }
+        // => drop(board_guard);
+
+        Ok(())
+    }
+
+    async fn launch_mission_assessment( &mut self, mission_id: String ) -> Result<()> {
+        
+        //
+        let max_iterations: u32 = 10;
+        // TODO: put this in configuration parameters
+
+        for iteration in 0..max_iterations {
+
+            println!("[AGENT] mission iteration {}", iteration);
+
+            let artifact: InvestigationArtifact = self.run_assessment_iteration( &mission_id, iteration ).await?;
+
+            match &artifact.next_move {
+
+                Some(NextMove { action: Action::Finish, .. }) => {
+                    println!("[AGENT] mission assessment completed");
+                    break;
+                }
+
+                Some(next_move) => {
+                    self.execute_next_move( &mission_id, next_move ).await?;
+                }
+
+                None => {
+                    println!("[AGENT] broken assessment chain - no next_move given at iteration {}", iteration);
+                    break;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn run_assessment_iteration( &mut self, mission_id: &str, iteration: u32 ) -> Result<InvestigationArtifact> {
+
+        // retrieve context
+        let mission: Mission = {
+            let board = self.board.lock().await;
+
+            board.current_mission()
+        };
+
+        //let mission_prompt  : String = mission.prompt.clone();
+        //let source_tree_list: String = mission.knowledge.source_tree_list.clone();
+
+        let mut previous: InvestigationArtifact = InvestigationArtifact::default();
+        let mut observer_output: ObserverOutput = ObserverOutput::default();
+
+        // build prompt
+        let prompt: String = if iteration == 0 {
+            AssessmentPromptBuilder::build_initial(&mission)
+        } else {
+            // TODO: retrieve previous & observer_output
+            AssessmentPromptBuilder::build_iteration(&mission, &previous, &observer_output)
+        };
+
+        let response: String =
+            StreamForwarder::generate(
+                &self.name,
+                &prompt,
+                &self.llm,
+                self.board.clone(),
+            ).await;
+        
+        // TODO: publish
+
+        let artifact: InvestigationArtifact =
+            serde_json::from_str::<InvestigationArtifact>(
+                &response
+            )?;
+
+        Ok(artifact)
+    }
+
+    async fn execute_next_move( &mut self, mission_id: &str, next_move: &NextMove ) -> Result<()> {
+        // TODO
+        
+        match &next_move.action {
+
+            Action::FileReader { path } => {
+                // TODO
+            }
+
+            Action::WebSearcher { query } => {
+                // TODO
+            }
+
+            Action::WebReader { url } => {
+                // TODO
+            }
+
+            Action::AskForMoreContext { question } => {
+                // TODO
+            }
+
+            _ => {}
+        }
+
+        Ok(())
     }
 
     async fn on_artifact_created( &mut self, mission_id: String, artifact_id: String) {
-        // TODO
+        if self.name != "Strategist" {
+            return;
+        }
+
         return;
+
+        /*
+        let artifact = FilesystemArtifactStore::load(&artifact_id);
+        let mission_knowledge = FilesystemMissionStore::load(&mission_id);
+
+        let prompt =
+            StrategistPromptBuilder::build(
+                mission_knowledge,
+                artifact,
+            );
+
+        let response =
+            StreamForwarder::generate(
+                &self.name,
+                &prompt,
+                &self.llm,
+                self.board.clone(),
+            ).await;
+
+        */
+
+        // parse InvestigationState
+
+        // save it
+
+        // publish InvestigationStateUpdated
     }
 
     async fn on_investigation_updated( &mut self, mission_id: String) {

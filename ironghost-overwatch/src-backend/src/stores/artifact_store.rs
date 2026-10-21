@@ -1,4 +1,4 @@
-// src/artifact_store/artifact_store.rs
+// src/stores/artifact_store.rs
 
 use async_trait::async_trait;
 use serde::{Serialize, de::DeserializeOwned};

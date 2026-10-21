@@ -308,34 +308,18 @@ cd build/
 
 ### Running `ironghost-overwatch` (Rust)
 
-```bash
-cd ironghost-overwatch
-cargo run --release
-```
-
-> Note that, at this stage of development, agents react to tagging `!@<name_of_you_agent>` in board messages. Automatic tagging will be implemented in future version.
-
-#### For dev mode:
-
-##### 1. launch *overwatch* backend:
+#### 1. launch *overwatch* backend:
 
 ```bash
 cd ironghost-overwatch/src-backend
 cargo run -p backend --bin main 
 ```
 
-##### 2. launch *overwatch* frontend (accesible at `http://localhost:5173/`):
-
-```bash
-cd ironghost-overwatch/src-front
-npm run dev
-```
-
-##### 3. launch *overwatch* app (for desktop app view):
+#### 2. launch *overwatch* app:
 
 ```bash
 cd ironghost-overwatch
-npm run tauri dev 
+npm run tauri:dev 
 ```
 
 ## 🗺️ Roadmap

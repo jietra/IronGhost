@@ -7,7 +7,8 @@ use tokio::task::JoinHandle;
 use tokio::sync::{mpsc, Mutex};
 use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
-use crate::core::board::{Board, BoardMessage, MissionNode, BoardEvent};
+use crate::core::board::{Board, BoardMessage, BoardEvent};
+use crate::core::mission::MissionNode;
 use crate::engine::dag::MissionDag;
 
 use crate::config::SystemRegistry;
@@ -28,7 +29,7 @@ impl MissionRunner {
 
     /// Listen to the Board in background and launch/replace DAG execution
     pub fn spawn_listener(self) -> JoinHandle<()> {
-        let board   : Arc<Mutex<Board>>  = self.board.clone();
+        let board   : Arc<Mutex<Board>>   = self.board.clone();
         let registry: Arc<SystemRegistry> = self.registry.clone();
         
         tokio::spawn(async move {
@@ -44,8 +45,8 @@ impl MissionRunner {
 
             // 2. board event listening loop
             while let Ok(event) = rx.recv().await {
-                if let BoardEvent::MissionState(new_mission) = event {
-                    println!("[RUNNER] new mission graph detected");
+                if let BoardEvent::MissionState(new_mission_graph) = event {
+                    println!("[RUNNER] new mission detected");
 
                     // 3. abort active execution on replanning
                     if let Some(handle) = current_task.take() {
@@ -54,7 +55,7 @@ impl MissionRunner {
                     }
 
                     // 4. compiling Mission into MissionDag (petgraph)
-                    match MissionDag::try_from_mission(&new_mission) {
+                    match MissionDag::try_from_mission(&new_mission_graph) {
                         Ok(dag) => {
                             let board_clone         : Arc<Mutex<Board>>   = board.clone();
                             let registry_for_mission: Arc<SystemRegistry> = registry.clone();
@@ -99,15 +100,15 @@ impl MissionRunner {
         }
 
         // 2. event-driven resolution loop
-        let mut completed_count = 0;
+        let mut completed_count: usize = 0;
 
         while let Some((completed_idx, _result)) = rx.recv().await {
             completed_count += 1;
 
             // unlock childs of completed node
             for edge in dag.graph.edges(completed_idx) {
-                let child_idx = edge.target();
-                let child_deg = &mut in_degrees[child_idx.index()];
+                let child_idx: NodeIndex = edge.target();
+                let child_deg: &mut usize = &mut in_degrees[child_idx.index()];
                 *child_deg -= 1;
 
                 // if all child dependencies are lifted -> Spawn parallel

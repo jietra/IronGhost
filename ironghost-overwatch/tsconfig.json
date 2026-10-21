@@ -1,0 +1,44 @@
+{
+  "extends": "@tsconfig/svelte/tsconfig.json",
+  "compilerOptions": {
+    "target": "ESNext",
+    "useDefineForClassFields": true,
+    "module": "ESNext",
+    "resolveJsonModule": true,
+    "allowJs": true,
+    "checkJs": true,
+    
+    /* Strict Type-Checking Options */
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    
+    /* Module Resolution Options */
+    "moduleResolution": "bundler",
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+
+    /* Aliases (optional) */
+    "baseUrl": ".",
+    "paths": {
+      "$lib": ["./src-front/src/lib"],
+      "$lib/*": ["./src-front/src/lib/*"]
+    },
+    
+    /* Svelte 5 TypeScript Compiler */
+    "plugins": [{ "name": "svelte-language-server" }]
+  },
+  "include": [
+    "src-front/src/**/*.d.ts",
+    "src-front/src/**/*.ts",
+    "src-front/src/**/*.svelte"
+  ],
+  "exclude": [
+    "node_modules/*", 
+    "src-tauri/*", 
+    "src-backend/*", 
+    "dist/*"
+  ]
+}

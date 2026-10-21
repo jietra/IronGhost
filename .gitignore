@@ -14,13 +14,14 @@ ironghost-overwatch/src-front/node_modules
 ironghost-overwatch/src-tauri/gen
 ironghost-overwatch/src-tauri/target
 ironghost-overwatch/src-backend/.env
+ironghost-overwatch/src-backend/data/artifacts/*
+ironghost-overwatch/src-backend/data/sources/*
 
 ironghost-executor/target
 ironghost-executor/Cargo.lock
 
 ironghost-services/archive
-ironghost-services/models
-ironghost-services/ceo
+ironghost-services/models/*
 
 ironghost-services/agent-strategist/build
 ironghost-services/agent-strategist/.env
@@ -57,7 +58,7 @@ ironghost-services/sentinel-code/logs
 
 # Models & Large Files (GGUF)
 *.gguf
-/models/
+/models/*
 
 # Environment & Local Sockets
 .env

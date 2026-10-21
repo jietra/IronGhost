@@ -1,41 +1,23 @@
 // src/observers/file_reader.rs
 
-use serde::{Serialize, Deserialize};
-use std::path::Path;
+use std::sync::Arc;
+use crate::stores::source_store::{SourceStore, SourceStoreError};
 
-//
-// =========================
-// IronGhost Artifacts
-// =========================
-//
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FileArtifact {
-    pub path      : String,
-    pub content   : String,
-    pub size_bytes: usize,
+pub struct FileReader {
+    source_store: Arc<SourceStore>,
 }
-
-//
-// =========================
-// Tool
-// =========================
-//
-
-pub struct FileReader;
 
 impl FileReader {
 
-    pub async fn execute( path: &Path ) -> anyhow::Result<FileArtifact> {
-
-        let content: String = tokio::fs::read_to_string( path ).await?;
-
-        Ok(
-            FileArtifact {
-                path      : path.to_string_lossy().to_string(),
-                size_bytes: content.len(),
-                content,
-            }
-        )
+    pub fn new( source_store: Arc<SourceStore> ) -> Self {
+        Self { source_store }
     }
+
+    pub fn execute( &self, relative_path: &str ) -> Result<String, SourceStoreError> {
+
+        // TODO: log
+        
+        self.source_store.load_file(relative_path)
+    }
+    
 }

@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use tokio::sync::Mutex;
 
-use crate::core::board::{Board, MissionNode, BoardMessage};
+use crate::core::board::{Board, BoardMessage};
+use crate::core::mission::MissionNode;
 use crate::config::SystemRegistry;
 
 use crate::agents::agent_llm::AgentLLM;

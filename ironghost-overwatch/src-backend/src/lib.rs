@@ -4,6 +4,5 @@ pub mod engine;
 pub mod ui;
 pub mod config;
 pub mod observers;
-pub mod artifact_store;
+pub mod stores;
 pub mod utils;
-pub mod mission_knowledge;

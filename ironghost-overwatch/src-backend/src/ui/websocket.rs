@@ -1,21 +1,31 @@
 // src/ui/websocket.rs
 
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, broadcast, MutexGuard};
+use tokio::net::{
+    TcpListener,
+    TcpStream,
+};
+use tokio_tungstenite::{
+    accept_async,
+    WebSocketStream,
+    tungstenite::Message,
+};
+use futures_util::{
+    StreamExt,
+    SinkExt,
+    stream::SplitSink,
+};
 
-use tokio::net::TcpListener;
-use tokio_tungstenite::accept_async;
-use tokio_tungstenite::tungstenite::Message;
-use futures_util::{StreamExt, SinkExt};
-
-use crate::core::board::{Board, BoardMessage};
+use crate::core::board::{Board, BoardMessage, BoardEvent};
 
 pub async fn run_websocket_ui(addr: &str, board: Arc<Mutex<Board>>) {
-    let listener = TcpListener::bind(addr).await.expect("Impossible to bind port WS");
+    let listener: TcpListener = TcpListener::bind(addr).await.expect("Impossible to bind port WS");
+    
     println!("[WS-UI] UI WebSocket server running on ws://{}", addr);
 
     while let Ok((stream, _)) = listener.accept().await {
-        let board_clone = board.clone();
+        let board_clone: Arc<Mutex<Board>> = board.clone();
         tokio::spawn(async move {
             if let Err(e) = handle_connection(stream, board_clone).await {
                 eprintln!("[WS-UI] connexion error : {:?}", e);
@@ -28,18 +38,20 @@ async fn handle_connection(
     stream: tokio::net::TcpStream, 
     board : Arc<Mutex<Board>>
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let ws = accept_async(stream).await?;
+    let ws: WebSocketStream<TcpStream> = accept_async(stream).await?;
     let (ws_tx_raw, mut ws_rx) = ws.split();
 
     // clone sink for each task
-    let ws_tx = Arc::new(Mutex::new(ws_tx_raw));
+    let ws_tx: Arc<Mutex<SplitSink<WebSocketStream<TcpStream>, Message>>> = Arc::new(Mutex::new(ws_tx_raw));
 
     // Task 1: Board -> UI (Broadcast)
     {
-        let board = board.clone();
-        let ws_tx = ws_tx.clone();
+        let board: Arc<Mutex<Board>> = board.clone();
+        let ws_tx: Arc<Mutex<SplitSink<WebSocketStream<TcpStream>, Message>>> = ws_tx.clone();
+
         tokio::spawn(async move {
-            let mut rx = board.lock().await.tx.subscribe();
+            let mut rx: broadcast::Receiver<BoardEvent> = board.lock().await.tx.subscribe();
+        
             while let Ok(event) = rx.recv().await {
                 if let Ok(json) = serde_json::to_string(&event) {
                     let _ = ws_tx.lock().await.send(Message::Text(json)).await;
@@ -56,22 +68,29 @@ async fn handle_connection(
 
             // if get_history
             if json.get("type") == Some(&serde_json::Value::String("get_history".into())) {
+
                 println!("[WS-UI] retrieving board history");
-                let board_guard = board.lock().await;
+                
+                let board_guard: MutexGuard<'_, Board> = board.lock().await;
 
                 // send history to client
-                let payload = serde_json::json!({
-                    "type": "history",
+                let payload: serde_json::Value = serde_json::json!({
+                    "type"   : "history",
                     "payload": board_guard.messages
                 });
-                println!("[WS-UI] send board history to UI");
+                
+                println!("[WS-UI] sending board history to UI");
+                
                 let _ = ws_tx.lock().await.send(Message::Text(payload.to_string())).await;
 
                 // send initial state of mission graph
-                let mission_payload = serde_json::json!({
-                    "type": "mission_state",
-                    "payload": board_guard.mission
+                let mission_payload: serde_json::Value = serde_json::json!({
+                    "type"   : "mission_state",
+                    "payload": board_guard.mission.graph
                 });
+
+                println!("[WS-UI] sending graph to UI");
+
                 let _ = ws_tx.lock().await.send(Message::Text(mission_payload.to_string())).await;
 
                 continue;
@@ -80,7 +99,9 @@ async fn handle_connection(
 
         // otherwise, try to parse normal BoardMessage
         if let Ok(msg) = serde_json::from_str::<BoardMessage>(&text) {
+
             println!("[WS-UI] publish message to board");
+            
             board.lock().await.publish(msg).await;
         }
     }

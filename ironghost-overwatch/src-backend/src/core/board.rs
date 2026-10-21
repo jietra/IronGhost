@@ -2,61 +2,24 @@
 
 /// Mission declarative view
 
+use std::sync::Arc;
 use tokio::sync::broadcast;
 use serde::{Serialize, Deserialize};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct MissionNode {
-    pub id   : String,
-    pub kind : String, // "goal", "subgoal", "task", "asset", "vuln", "risk"
-    pub title: String,
-
-    #[serde(default)]
-    pub description: Option<String>,
-
-    #[serde(default)]
-    pub worker     : Option<String>, // E.g.: "coder", "sentinel", "executor", "tool:nmap"
-
-    //#[serde(default)]
-    //pub status     : NodeStatus,  // placeholder
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum NodeStatus {
-    Pending,
-
-    Running {
-        started_at: i64,
+use crate::{
+    config::SystemRegistry,
+    core::mission::{
+        Mission,
+        MissionGraph
     },
+};
 
-    Succeeded {
-        attempts: usize,
-        score   : Option<u8>,
-    },
+pub struct Board {
+    pub messages: Vec<BoardMessage>,
+    pub mission : Mission,
+    pub tx      : broadcast::Sender<BoardEvent>,  // Board transmitter (sender)
 
-    Failed {
-        attempts: usize,
-        error   : String,
-    },
-}
-
-impl Default for NodeStatus {
-    fn default() -> Self {
-        NodeStatus::Pending
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct MissionEdge {
-    pub from    : String,
-    pub to      : String,
-    pub relation: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
-pub struct Mission {
-    pub nodes: Vec<MissionNode>,
-    pub edges: Vec<MissionEdge>,
+    pub registry : Arc<SystemRegistry>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -64,12 +27,6 @@ pub struct BoardMessage {
     pub agent    : String,  // not of type Agent to allow human agent or a worker (not AI). TODO: consider adding a Type: Human, AI, Worker
     pub content  : String,
     pub timestamp: u64,
-}
-
-pub struct Board {
-    pub messages: Vec<BoardMessage>,
-    pub mission : Mission,
-    pub tx      : broadcast::Sender<BoardEvent>,  // Board transmitter (sender)
 }
 
 #[derive(Clone, Serialize)]
@@ -81,11 +38,45 @@ pub enum BoardEvent {
         BoardMessage
     ),
     
+    StreamStart { msg_id: String, agent: String },
+    StreamChunk { msg_id: String, delta: String },
+    StreamEnd   { msg_id: String },
+
+    // dispatch commands (only emitted by system agent)
+    DispatchCommand {
+        mission_id  : String,
+        to          : String,
+        payload     : String,
+    },
+
+    // mission commands:
+    NewMission {
+        mission_prompt: String,
+    },
+
+    MissionGo {
+        mission_id: String,
+    },
+
+    MissionPause {
+        mission_id: String,
+    },
+
+    MissionResume {
+        mission_id: String,
+    },
+
+    MissionAbort {
+        mission_id: String,
+    },
+
+    // mission state:
     #[serde(rename = "mission_state")]
     MissionState(
-        Mission
+        MissionGraph
     ),
 
+    // knowledge events:
     #[serde(rename = "artifact_created")]
     ArtifactCreated {
         mission_id : String,
@@ -97,18 +88,16 @@ pub enum BoardEvent {
         mission_id: String,
     },
 
-    StreamStart { msg_id: String, agent: String },
-    StreamChunk { msg_id: String, delta: String },
-    StreamEnd   { msg_id: String },
 }
 
 impl Board {
-    pub fn new() -> Board {
+    pub fn new(registry : Arc<SystemRegistry>,) -> Board {
         let (tx, _) = broadcast::channel(1024);     // 1024 messages max history in broadcast; transmitter only (tx), no receiver (rx)
             Self {
                 messages: Vec::new(),
                 mission : Mission::default(),
                 tx,
+                registry,
             }
     }
 
@@ -119,13 +108,13 @@ impl Board {
         println!("[BOARD] add message from {} to board messages", msg.agent);
 
         // detect and extract mission graphe update
-        if let Some(new_mission) = Self::extract_mission_from_content(&msg.content) {
+        if let Some(new_mission_graph) = Self::extract_mission_from_content(&msg.content) {
             println!("[BOARD] mission graph update detected");
 
-            self.mission = new_mission.clone();
+            self.mission.graph = new_mission_graph.clone();
 
             // broadcast new mission state
-            let _ = self.tx.send(BoardEvent::MissionState(new_mission));
+            let _ = self.tx.send(BoardEvent::MissionState(new_mission_graph));
         }
 
         self.messages.push(msg.clone());
@@ -138,14 +127,14 @@ impl Board {
     }
 
     /// Extract JSON bloc inside <mission_state>...</mission_state>
-    fn extract_mission_from_content(content: &str) -> Option<Mission> {
-        let start_tag = "<mission_state>";
-        let end_tag   = "</mission_state>";
+    fn extract_mission_from_content(content: &str) -> Option<MissionGraph> {
+        let start_tag: &str = "<mission_state>";
+        let end_tag  : &str = "</mission_state>";
 
         if let Some(start) = content.find(start_tag) {
             if let Some(end) = content[start..].find(end_tag) {
-                let json_str = &content[start + start_tag.len()..start + end];
-                if let Ok(mission) = serde_json::from_str::<Mission>(json_str.trim()) {
+                let json_str: &str = &content[start + start_tag.len()..start + end];
+                if let Ok(mission) = serde_json::from_str::<MissionGraph>(json_str.trim()) {
                     return Some(mission);
                 }
             }
@@ -157,10 +146,40 @@ impl Board {
     pub fn publish_event(&self, event: BoardEvent) {
         let _ = self.tx.send(event);
     }
-}
 
-impl Mission {
-    pub fn new() -> Self {
-        Self::default()
+    // current mission
+    pub fn set_current_mission( &mut self, mission: Mission ) {
+        self.mission = mission;
     }
+
+    pub fn current_mission( &self ) -> Mission {
+        self.mission.clone()
+    }
+
+    // source tree
+    pub fn update_source_tree_list( &mut self, tree: String ) {
+        self.mission
+            .knowledge
+            .source_tree_list = tree;
+    }
+
+
+
+
+/*
+    // ------
+
+    pub fn current_mission_id( &self ) -> Option<&str> {
+        Some(&self.mission.id)
+    }
+
+    pub fn current_mission_prompt( &self ) -> Option<&str> {
+        Some(&self.mission.prompt)
+    }
+    
+    pub fn get_source_tree_list( &self ) -> Option<&str> {
+        Some(&self.mission.knowledge.source_tree_list)
+    }
+    */
+
 }
