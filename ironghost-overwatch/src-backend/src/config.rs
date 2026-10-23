@@ -19,7 +19,6 @@ use crate::core::board::{
 };
 use crate::agents::{
     agent::Agent,
-    agent_llm::AgentLLM
 };
 use crate::observers::{
     file_reader::FileReader,
@@ -32,6 +31,7 @@ use crate::stores::{
     source_store::SourceStore,
     artifact_store::FilesystemArtifactStore,
 };
+use crate::llm::llm::LLM;
 
 #[derive(Debug, Deserialize)]
 pub struct YamlConfig {
@@ -190,7 +190,7 @@ impl SystemRegistry {
                 name,
                 board.clone(),
                 tx.subscribe(),
-                AgentLLM::new(socket),
+                LLM::new(socket),
             );
 
             agent.spawn();

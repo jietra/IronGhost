@@ -1,7 +1,8 @@
 // src/agents/system_agent.rs
 
 use crate::core::board::{BoardMessage, BoardEvent, Board};
-use crate::core::mission::{Mission, MissionGraph, MissionKnowledge, MissionStatus};
+use crate::core::mission::{Mission, MissionGraph, MissionStatus};
+use crate::core::mission_knowledge::MissionKnowledge;
 
 use std::sync::Arc;
 use tokio::sync::{Mutex, broadcast, MutexGuard};
@@ -60,17 +61,6 @@ impl SystemAgent {
 
             BoardEvent::NewMessage(msg) =>
                 self.on_message(msg).await,
-
-            BoardEvent::ArtifactCreated {mission_id, artifact_id} =>
-                self.on_artifact_created(
-                    mission_id,
-                    artifact_id,
-                ).await,
-
-            BoardEvent::InvestigationStateUpdated {mission_id} =>
-                self.on_investigation_updated(
-                    mission_id
-                ).await,
 
             _ => {}
         }
@@ -139,14 +129,6 @@ impl SystemAgent {
             content  : format!("New mission created with id: {}", mission.id.clone()),
             timestamp: Utc::now().timestamp_millis() as u64,
         }).await;
-    }
-
-    async fn on_artifact_created( &mut self, mission_id: String, artifact_id: String) {
-        return;
-    }
-
-    async fn on_investigation_updated( &mut self, mission_id: String) {
-        return;
     }
 
 }

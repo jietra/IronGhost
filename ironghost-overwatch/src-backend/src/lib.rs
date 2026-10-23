@@ -5,4 +5,5 @@ pub mod ui;
 pub mod config;
 pub mod observers;
 pub mod stores;
-pub mod utils;
+pub mod llm;
+pub mod workers;

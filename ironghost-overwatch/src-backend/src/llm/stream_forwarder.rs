@@ -1,16 +1,13 @@
-// src/engine/stream_forwarder.rs
-
-use tokio::pin;
-use futures_util::Stream;
-use futures_util::StreamExt;
-
-use tokio::sync::broadcast::Sender;
-use chrono::Utc;
+// src/llm/stream_forwarder.rs
 
 use std::sync::Arc;
-use tokio::sync::{Mutex, MutexGuard};
+use tokio::pin;
+use tokio::sync::{Mutex, MutexGuard, broadcast::Sender};
+use futures_util::{Stream, StreamExt};
+use chrono::Utc;
+
 use crate::core::board::{Board, BoardEvent};
-use crate::agents::agent_llm::AgentLLM;
+use crate::llm::llm::LLM;
 
 pub struct StreamForwarder;
 
@@ -54,7 +51,7 @@ impl StreamForwarder {
         full_output
     }
 
-    pub async fn generate(service: &str, prompt: &str, client: &AgentLLM, board: Arc<Mutex<Board>>) -> String {
+    pub async fn generate(service: &str, prompt: &str, client: &LLM, board: Arc<Mutex<Board>>) -> String {
         let stream = client.stream_generate(&prompt);
         let msg_id  : String = format!("{}-{}", service, Utc::now().timestamp_millis());
         let tx_board: Sender<BoardEvent> = {

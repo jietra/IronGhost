@@ -15,10 +15,14 @@ agents:
 workers:
   coder:
     socket: /tmp/agent_coder.sock
+  worker-generic:
+    socket: /tmp/worker_generic.sock
 
 sentinels:
   sentinel-code:
     socket: /tmp/sentinel_code.sock
+  sentinel-generic:
+    socket: /tmp/sentinel_generic.sock
 
 observers:
   web_search:

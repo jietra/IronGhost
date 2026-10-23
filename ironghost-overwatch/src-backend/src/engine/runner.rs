@@ -12,7 +12,7 @@ use crate::core::mission::MissionNode;
 use crate::engine::dag::MissionDag;
 
 use crate::config::SystemRegistry;
-use crate::engine::dispatcher::AgentDispatcher;
+use crate::workers::dispatcher::Dispatcher;
 
 pub struct MissionRunner {
     board   : Arc<Mutex<Board>>,
@@ -148,8 +148,8 @@ impl MissionRunner {
             // executing logic according to node type
             let result: Result<String, String> = match node.kind.as_str() {
                 "task" | "subgoal" => {
-                    let dispatcher: AgentDispatcher = AgentDispatcher::new(registry);
-                    dispatcher.execute(&node, board.clone()).await
+                    let dispatcher: Dispatcher = Dispatcher::new(registry);
+                    dispatcher.execute_node(&node, board.clone()).await
                 }
                 _ => Ok("Asset/Goal ignored by runner execution engine".into()), // "assets" or "risks" are only informative at this stage
             };

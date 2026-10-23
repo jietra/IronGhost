@@ -1,7 +1,12 @@
 // src/core/mission_assessment.rs
 
+// WIP
+
 use serde::{Serialize, Deserialize};
-use crate::core::mission::{Mission, MissionGraph, MissionKnowledge};
+use crate::core::{
+    mission::{Mission, MissionGraph},
+    mission_knowledge::MissionKnowledge
+};
 
 pub struct AssessmentContext {
     pub mission_prompt   : String,
@@ -18,16 +23,30 @@ pub struct AssessmentContext {
 // -------------------------------------
 //
 
-pub struct StrategistOutput {
-    pub investigation_state: InvestigationArtifact,
-    pub mission_graph      : Option<MissionGraph>,
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct StrategistOutput {   // only for parsing purposes: to facilitate llm response parsing into relevant struct
+    pub analysis        : String,
+
+    pub observations    : Vec<Observation>,
+    pub hypotheses      : Vec<Hypothesis>,
+    
+    pub next_action     : NextAction,
+    pub mission_graph   : Option<MissionGraph>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct NextAction {
+    pub intention       : String,
+    pub action          : String,
+    pub target          : String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct ObserverOutput {
-    pub source_id: String,
+    pub source_id   : String,
+
     pub observations: Vec<Observation>,
-    pub hypotheses: Vec<Hypothesis>,
+    pub hypotheses  : Vec<Hypothesis>,
 }
 
 // investigation state = grammatically constrained output of strategist
@@ -37,11 +56,8 @@ pub struct InvestigationArtifact {
     pub iteration       : u32,
 
     pub analysis        : String,
-
     pub observations    : Vec<Observation>,
     pub hypotheses      : Vec<Hypothesis>,
-    //pub findings        : Vec<Finding>,     // confirmed_hypotheses
-    
     pub next_move       : Option<NextMove>,
 }
 
@@ -119,7 +135,7 @@ pub enum Severity {
 }
 
 // Experiment, investigate further...
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct NextMove {
     pub intention: String,
     pub action   : Action,
@@ -145,12 +161,19 @@ pub enum Action {
     Finish,
 }
 
+impl Default for Action {
+    fn default() -> Self {
+        Action::Finish
+    }
+}
+
 pub struct AssessmentPromptBuilder;
 
 impl AssessmentPromptBuilder {
 
     pub fn build_initial(
         mission: &Mission,
+        max_iterations: u32
     ) -> String {
 
         format!(
@@ -170,7 +193,7 @@ Mission Assessment
 ITERATION
 =========
 
-0
+0 / {}
 
 AVAILABLE SOURCES
 =================
@@ -190,6 +213,7 @@ Produce:
 
 "#,
             mission.prompt,
+            max_iterations,
             mission.knowledge.source_tree_list,
         )
     }
@@ -198,6 +222,7 @@ Produce:
         mission: &Mission,
         previous: &InvestigationArtifact,
         observer_output: &ObserverOutput,
+        max_iterations: u32
     ) -> String {
         let previous_observations =
             previous.observations
@@ -237,7 +262,7 @@ Mission Assessment
 ITERATION
 =========
 
-{}
+{} / {}
 
 PREVIOUS OBSERVATIONS
 =====================
@@ -265,6 +290,7 @@ TASK
 "#,
             mission.prompt,
             previous.iteration+1,
+            max_iterations,
             previous_observations,
             previous_hypotheses,
             observer_output_as_str

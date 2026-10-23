@@ -45,6 +45,9 @@ ironghost-services/sentinel-code/build
 ironghost-services/sentinel-code/.env
 ironghost-services/sentinel-code/logs
 
+ironghost-services/sentinel-generic
+ironghost-services/worker-generic
+
 # Rust / Cargo
 /target/
 

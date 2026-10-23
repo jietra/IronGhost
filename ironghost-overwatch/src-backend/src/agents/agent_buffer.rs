@@ -39,7 +39,10 @@ impl AgentBuffer {
         }
     }
 
-    pub fn flush(&mut self, agent_name: &str) -> String {
+    pub fn flush(
+        &mut self,
+        //agent_name: &str
+    ) -> String {
         if self.messages.is_empty() {
             return String::new();
         }
@@ -57,10 +60,12 @@ impl AgentBuffer {
         }
 
         // Lock role: force agent to respond
+        /*
         prompt.push_str(&format!(
             "[YOUR TURN]\nYou are {}. Respond strictly to tasks addressed to you or @All.\n{}:",
             agent_name, agent_name
         ));
+        */
 
         self.messages.clear();
         prompt
