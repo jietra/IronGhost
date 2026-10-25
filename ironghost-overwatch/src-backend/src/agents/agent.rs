@@ -1,23 +1,31 @@
 // src/agents/agent.rs
 
 use std::sync::Arc;
-use tokio::sync::{Mutex, broadcast, MutexGuard};
+use tokio::sync::{
+    Mutex,
+    broadcast::{Receiver, error::RecvError},
+    MutexGuard
+};
 use chrono::Utc;
 use anyhow::{Result, anyhow};
 
-use crate::core::board::{BoardMessage, BoardEvent, Board};
-use crate::core::mission::Mission;
-use crate::core::mission_assessment::{Action, AssessmentPromptBuilder, InvestigationArtifact, NextAction, NextMove, ObserverOutput, StrategistOutput};
+use crate::core::{
+    board::{Board, BoardEvent, BoardMessage},
+    mission::Mission,
+    mission_assessment::{AssessmentArtifact, AssessmentContext, NextAction, Action, ObserverOutput, StrategistOutput}
+};
 use crate::agents::agent_buffer::AgentBuffer;
-use crate::llm::{llm::LLM, stream_forwarder::StreamForwarder};
+use crate::llm::{
+    llm::LLM,
+    stream_forwarder::StreamForwarder
+};
 use crate::stores::source_store::FolderTree;
 use crate::workers::dispatcher::Dispatcher;
-use crate::config::SystemRegistry;
 
 pub struct Agent {
     pub name  : String,                             // agent's id
     pub buffer: AgentBuffer,                        // agent prompt to be sent to agent's llm service (last board publications since last agent's response)
-    pub rx    : broadcast::Receiver<BoardEvent>,    // agent receiver to receive board broadcasts
+    pub rx    : Receiver<BoardEvent>,               // agent receiver to receive board broadcasts
     pub llm   : LLM,                                // representation of agent's llm service
     pub board : Arc<Mutex<Board>>,                  // board the agent subscribes and publish to
 }
@@ -26,7 +34,7 @@ impl Agent {
     pub fn new(
         name : &str,
         board: Arc<Mutex<Board>>,
-        rx   : broadcast::Receiver<BoardEvent>,
+        rx   : Receiver<BoardEvent>,
         llm  : LLM,
     ) -> Self {
 
@@ -64,12 +72,12 @@ impl Agent {
             Ok(event) =>
                 Some(event),
 
-            Err(broadcast::error::RecvError::Lagged(skipped)) => {
+            Err(RecvError::Lagged(skipped)) => {
                 eprintln!("[AGENT] WARNING: agent {} skipped {} messages", self.name, skipped);
                 None
             }
 
-            Err(broadcast::error::RecvError::Closed) => {
+            Err(RecvError::Closed) => {
                 eprintln!("[AGENT] WARNING: agent {} broadcast channel closed", self.name);
                 None
             }
@@ -84,9 +92,11 @@ impl Agent {
                 self.on_message(msg).await,
 
             BoardEvent::DispatchCommand{ mission_id, to, payload } => {
-                if let Err(e) = self.on_command(mission_id, to, payload).await {
-                    eprintln!("[AGENT] ERROR, command failed: {}", e);
-                }
+                if let Err(e) =
+                    self.on_command(mission_id, to, payload).await {
+                        
+                        eprintln!("[AGENT] ERROR, command failed: {}", e);
+                    }
             }
 
             BoardEvent::StreamStart { .. }
@@ -125,12 +135,15 @@ impl Agent {
             ).await;
             
             // publish final output
-            let mut board: MutexGuard<'_, Board> = self.board.lock().await;    //
-            board.publish(BoardMessage {
-                agent    : self.name.clone(),
-                content  : full_response,
-                timestamp: Utc::now().timestamp_millis() as u64,
-            }).await;
+            {
+                let mut board: MutexGuard<'_, Board> = self.board.lock().await;    //
+                
+                board.publish(BoardMessage {
+                    agent    : self.name.clone(),
+                    content  : full_response,
+                    timestamp: Utc::now().timestamp_millis() as u64,
+                }).await;
+            }
         }
     }
 
@@ -142,8 +155,9 @@ impl Agent {
         match payload.as_str() {
 
             "!Initiate_Mission" => {
-                //
-                let budget: u32 = 5;
+                // vvvvvvvvvvvvvvvv
+                let budget: u32 = 2;
+                // ^^^^^^^^^^^^^^^^
                 // we set a budget = max iterations in assessment loop
                 // NB: llm context overflow with current design around 7-8 iterations
                 // => "full context" will be replaced by a preliminary report
@@ -157,7 +171,7 @@ impl Agent {
                 
                 self.refresh_source_tree().await?;
                 
-                self.launch_mission_assessment(mission_id, budget).await?;
+                self.launch_mission_assessment(budget).await?;
 
             }
 
@@ -174,10 +188,8 @@ impl Agent {
             let board: MutexGuard<'_, Board> = self.board.lock().await;
 
             board
-                .registry
-                .observer_registry()
-                .folder_explorer
-                .execute()?
+                .registry.observer_registry()
+                .folder_explorer.execute()?
         };
 
         let source_tree_list: String = source_tree.to_path_listing();
@@ -194,67 +206,74 @@ impl Agent {
         Ok(())
     }
 
+    // ----------------------------
     // mission assessment loop
-    async fn launch_mission_assessment( &mut self, mission_id: String, budget: u32 ) -> Result<()> {
+    // ----------------------------
 
-        let mut previous: InvestigationArtifact = InvestigationArtifact::default();
-        let mut observer_output: ObserverOutput = ObserverOutput::default();
+    async fn launch_mission_assessment( &mut self, budget: u32 ) -> Result<()> {
 
-        for iteration in 0..budget {
-
-            println!("[AGENT] mission iteration {}", iteration);
-
-            let artifact: InvestigationArtifact = self.run_assessment_iteration( previous.clone(), observer_output.clone(), iteration, budget ).await?;
-
-            match &artifact.next_move {
-
-                Some(NextMove { action: Action::Finish, .. }) => {
-                    println!("[AGENT] mission assessment completed");
-                    break;
-                }
-
-                Some(next_move) => {
-                    println!("[AGENT] executing next move {:?}", next_move);
-                    observer_output = self.execute_next_move( &mission_id, next_move ).await?;
-                }
-
-                None => {
-                    println!("[AGENT] broken assessment chain - no next_move given at iteration {}", iteration);
-                    break;
-                }
-            }
-
-            previous = artifact;
-        }
-
-        Ok(())
-    }
-
-    async fn run_assessment_iteration( &mut self, previous: InvestigationArtifact, observer_output: ObserverOutput, iteration: u32, max_iterations: u32 ) -> Result<InvestigationArtifact> {
-
-        // retrieve context
         let mission: Mission = {
             let board: MutexGuard<'_, Board> = self.board.lock().await;
 
             board.current_mission()
         };
-
-        // build prompt
-        //let mut prompt: String = self.buffer.flush();
         
-        let prompt_suppl: String = if iteration == 0 {
-            AssessmentPromptBuilder::build_initial(&mission, max_iterations)
-        } else {
-            AssessmentPromptBuilder::build_iteration(&mission, &previous, &observer_output, max_iterations)
+        let mut assessment_context: AssessmentContext = AssessmentContext {
+            mission_prompt      : mission.prompt,
+            source_tree_list    : mission.knowledge.source_tree_list,
+            
+            previous_assessment : None,
+            observer_output     : None,
+            iteration           : 0,
+            budget              : budget,
         };
 
-        //prompt.push_str(&format!("[YOUR TURN]\n"));
-        //prompt.push_str(&prompt_suppl);
+        for iteration in 0..budget {
+
+            println!("[AGENT] mission iteration {}", iteration);
+
+            let current_assessment: AssessmentArtifact =
+                // send to agent
+                self.run_assessment_round(&mut assessment_context).await?;
+
+            match &current_assessment.next_move.action {
+
+                Action::Finish => {
+                    println!("[AGENT] mission assessment completed");
+                    break;
+                }
+
+                _ => {
+                    println!("[AGENT] executing next move {:?}", &current_assessment.next_move);
+
+                    assessment_context.observer_output = Some(
+                        // send to worker
+                        self.execute_next_move( &current_assessment.next_move ).await?
+                    );
+                }                
+            }
+
+            //previous = artifact;
+            assessment_context.previous_assessment = Some(current_assessment);
+            assessment_context.iteration = iteration + 1;
+        
+        }
+
+        Ok(())
+    }
+
+    // ----------------------------
+    // send to agent LLM
+    // ----------------------------
+
+    async fn run_assessment_round ( &mut self, assessment_context: &mut AssessmentContext ) -> Result<AssessmentArtifact> {
+
+        let prompt: String = assessment_context.to_prompt();
 
         let response: String =
             StreamForwarder::generate(
                 &self.name,
-                &prompt_suppl,
+                &prompt,
                 &self.llm,
                 self.board.clone(),
             ).await;
@@ -265,6 +284,7 @@ impl Agent {
         let json_str: &str = extract_json(&response)
             .ok_or_else(|| anyhow!("unable to extract json"))?;
 
+        // strategist output parsing
         let strategist_output: StrategistOutput =
             serde_json::from_str::<StrategistOutput>(
                 json_str
@@ -272,80 +292,88 @@ impl Agent {
         
         println!("DEBUG strategist_output done");
         
+        /*
         let intention: String   = strategist_output.next_action.intention;
         let target   : String   = strategist_output.next_action.target;
-        let next_move: NextMove = match strategist_output.next_action.action.as_str() {
-            "FileReader" => NextMove {
-                intention,
-                action: Action::FileReader { path: target }
-            },
+        let next_move: NextMove =
+            match strategist_output.next_action.action.as_str() {
+                "FileReader" => NextMove {
+                    intention,
+                    action: Action::FileReader { path: target }
+                },
 
-            // ...
+                // ...
 
-            _ => NextMove::default(),
-        };
+                _ => NextMove::default(),
+            };
 
         println!("next_move: {:?}", next_move);
+        */
 
-        let artifact: InvestigationArtifact = InvestigationArtifact {
-            mission_id: previous.mission_id,
-            iteration,
-            analysis: strategist_output.analysis,
-            observations: strategist_output.observations,
-            hypotheses: strategist_output.hypotheses,
-            next_move: Some(next_move),
+        let artifact: AssessmentArtifact = AssessmentArtifact {
+            iteration   : assessment_context.iteration,
+            analysis    : strategist_output.analysis,
+            next_move   : strategist_output.next_move,
         };
 
         println!("artifact: {:?}", artifact);
 
         // publish
-        let mut board: MutexGuard<'_, Board> = self.board.lock().await;    //
-        board.publish(BoardMessage {
-            agent    : self.name.clone(),
-            content  : response,
-            timestamp: Utc::now().timestamp_millis() as u64,
-        }).await;
-
+        {
+            let mut board: MutexGuard<'_, Board> = self.board.lock().await;    //
+            
+            board.publish(BoardMessage {
+                agent    : self.name.clone(),
+                content  : response,
+                timestamp: Utc::now().timestamp_millis() as u64,
+            }).await;
+        }
+        
         Ok(artifact)
+
     }
 
-    async fn execute_next_move( &mut self, mission_id: &str, next_move: &NextMove ) -> Result<ObserverOutput> {
-        // TODO
+    // ----------------------------
+    // send to worker
+    // ----------------------------
+
+    async fn execute_next_move( &mut self, next_move: &NextAction ) -> Result<ObserverOutput> {
+        // TODO: execute_next_move ((board), next_move)
 
         let mut observer_output: ObserverOutput = ObserverOutput::default();
         
         match &next_move.action {
 
-            Action::FileReader { path } => {
+            Action::FileReader => {
+                // TODO: self.execute_file_reader((board), next_move).await
 
+                let path: &String = &next_move.target;
                 println!("FileReader on path {}", path);
 
+                // execute FileReader tool
                 let file_content: String = {
-                    let board_guard =
-                        self.board.lock().await;
+                    let board_guard: MutexGuard<'_, Board> = self.board.lock().await;
 
-                    board_guard
-                        .registry
+                    board_guard.registry
                         .observer_registry()
-                        .file_reader
-                        .execute(path)?
+                        .file_reader.execute(path)?
                 };
+
+                // prompt for worker
                 let prompt: String = format!(
-r#"
-OBJECTIVE
-=========
+                    r#"
+                    OBJECTIVE
+                    =========
+                    {}
 
-{}
+                    SOURCE IDENTIFIER
+                    =================
+                    {}
 
-SOURCE IDENTIFIER
-=================
-
-{}
-
-SOURCE CONTENT
-==============
-{}
-"#,
+                    SOURCE CONTENT
+                    ==============
+                    {}
+                    "#,
                     next_move.intention,
                     path,
                     file_content,
@@ -353,25 +381,28 @@ SOURCE CONTENT
 
                 println!("prompt {}", prompt);
 
-                let registry: Arc<SystemRegistry> = {
-                    let board_guard =
-                        self.board.lock().await;
+                // send to FileReader worker
+                let dispatcher: Dispatcher = {
+                    let board_guard: MutexGuard<'_, Board> = self.board.lock().await;
 
-                    board_guard.registry.clone()
+                    board_guard.registry
+                        .dispatcher()
                 };
-                let dispatcher: Dispatcher = Dispatcher::new(registry);
+
                 let response: String = dispatcher.execute(
                     "reading file...",
                     "worker-generic",
                     "sentinel-generic",
                     &prompt,
                     self.board.clone()
-                ).await.unwrap_or_else(|e| {
+                ).await
+                .unwrap_or_else(|e| {
                     format!("unable to generate response: {}", e)
                 });
 
                 println!("response {}", response);
 
+                // observer output
                 observer_output =
                     serde_json::from_str::<ObserverOutput>(
                         &response
@@ -379,15 +410,15 @@ SOURCE CONTENT
 
             }
 
-            Action::WebSearcher { query } => {
+            Action::WebSearcher => {
                 // TODO
             }
 
-            Action::WebReader { url } => {
+            Action::WebReader => {
                 // TODO
             }
 
-            Action::AskForMoreContext { question } => {
+            Action::AskForMoreContext => {
                 // TODO
             }
 
@@ -399,6 +430,7 @@ SOURCE CONTENT
 
 }
 
+// helper
 fn extract_json(response: &str) -> Option<&str> {
     if let Some(pos) = response.rfind("</think>") {
         return Some(response[pos + "</think>".len()..].trim());

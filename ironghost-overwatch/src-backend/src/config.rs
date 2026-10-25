@@ -8,7 +8,8 @@ use std::{
 };
 use tokio::sync::{
     Mutex,
-    broadcast::Sender
+    broadcast::Sender,
+    MutexGuard
 };
 use serde::Deserialize;
 use anyhow::bail;
@@ -32,6 +33,7 @@ use crate::stores::{
     artifact_store::FilesystemArtifactStore,
 };
 use crate::llm::llm::LLM;
+use crate::workers::dispatcher::Dispatcher;
 
 #[derive(Debug, Deserialize)]
 pub struct YamlConfig {
@@ -179,13 +181,11 @@ impl SystemRegistry {
     pub async fn spawn_agents(&self, board: Arc<Mutex<Board>>) {
 
         let tx: Sender<BoardEvent> = {
-            let board_guard: tokio::sync::MutexGuard<'_, Board> =
-                board.lock().await;
+            let board_guard: MutexGuard<'_, Board> = board.lock().await;
             board_guard.tx.clone()
         };
 
-        for (name, socket) in &self.agents
-        {
+        for (name, socket) in &self.agents {
             let agent: Agent = Agent::new(
                 name,
                 board.clone(),
@@ -208,6 +208,10 @@ impl SystemRegistry {
 
     pub fn source_store( &self ) -> Arc<SourceStore> {
         self.source_store.clone()
+    }
+
+    pub fn dispatcher( self: &Arc<Self> ) -> Dispatcher {
+        Dispatcher::new(self.clone())
     }
 
 }

@@ -1,8 +1,9 @@
 // src/core/mission_knowledge.rs
 
-// WIP
-
+use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
+
+use crate::core::mission_assessment::{AssessmentArtifact, ObserverOutput};
 
 //
 // -------------------------------------
@@ -12,40 +13,46 @@ use serde::{Serialize, Deserialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct MissionKnowledge {
-    pub source_tree_list    : String,
-    //pub source_ids          : Vec<Source>,  // updated when user adds a raw source
-    pub artifact_ids        : Vec<String>,  // updated with mission's advancement
-    pub wiki_ids            : Vec<String>,  // updated on a rolling basis (with mission's advancement)
-    //pub current_findings    : Vec<Finding>,
-    //actions
-    //assessment(s)
-}
-/*
-pub struct MissionKnowledge {
-    pub observations        : Vec<Observation>,
-    pub active_hypotheses   : Vec<Hypothesis>,
-    pub findings            : Vec<Finding>,
+    pub source_tree_list    : String,                           // all raw sources
+    pub artifact_ids        : Vec<String>,                      // generated artifacts
+    pub cards               : HashMap<String, KnowledgeCard>,   // all concepts
+    
+    pub current_assessment  : Option<AssessmentArtifact>        // "index" knowledge in a structured assessment
 
-    pub open_questions      : Vec<String>,
+    //actions?   log actions, at least what was seen
 }
-*/
 
-/*
-/// Source: raw external source of truth, managed solely by user
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Source {
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct KnowledgeCard {
     pub id          : String,
-    pub name        : String,
-    pub source_type : SourceType,
-    pub location    : String,
+    pub title       : String,
+    pub status      : CardStatus,
     pub content     : String,
+    pub references  : Vec<String>,  // raw sources or artifact ids
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum SourceType {
-    Repository,
-    WebPage,
-    Pdf,
-    Markdown,
+pub enum CardStatus {
+    New,
+    Investigating,
+    Supported,
+    Refuted,
+    Resolved,
+}
+
+impl Default for CardStatus {
+    fn default() -> Self { CardStatus::New }
+}
+
+/*
+impl KnowledgeCard {
+
+    pub fn update_from(
+        &mut self,
+        observation: &ObserverOutput,
+    ) {
+        todo!()
+    }
+
 }
 */

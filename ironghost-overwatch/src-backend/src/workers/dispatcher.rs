@@ -14,6 +14,12 @@ use crate::llm::{llm::LLM, stream_forwarder::StreamForwarder};
 const MAX_RETRIES: usize = 3;
 // --------------------------------
 
+
+//
+// --------------------------------
+// Sentinel verdict
+// --------------------------------
+//
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SentinelVerdict {
     pub compliant           : bool,
@@ -44,6 +50,12 @@ impl SentinelVerdict {
         )
     }
 }
+
+//
+// --------------------------------
+// Task execution context
+// --------------------------------
+//
 
 pub struct TaskExecutionContext {
     pub task_objective  : String,
@@ -95,6 +107,12 @@ impl TaskExecutionContext {
     }
 }
 
+//
+// --------------------------------
+// Dispatcher
+// --------------------------------
+//
+
 pub struct Dispatcher {
     registry: Arc<SystemRegistry>,
 }
@@ -131,17 +149,20 @@ impl Dispatcher {
         // TODO: worker automatic fallback to generic worker
         // TODO: link sentinel to worker (e.g. in the yaml, add a sentinel line per worker)
 
-        // worker
+        // worker -> llm
         let socket_path: &str = self.registry
             .resolve_worker(worker)
             .ok_or_else(|| format!("[DISPATCHER] unknown worker {:?}", worker))?;
+        
         let client: LLM = LLM::new(socket_path);
+        
         println!("[DISPATCHER] dispatching task to {}", socket_path);
 
-        // sentinel
+        // sentinel -> llm
         let sentinel_socket: &str = self.registry
             .resolve_sentinel(sentinel)
             .ok_or_else(|| format!("[DISPATCHER] sentinel not found for worker {:?}", worker))?;
+        
         let sentinel_client: LLM = LLM::new(sentinel_socket);
 
         // initialize task execution context
@@ -151,12 +172,14 @@ impl Dispatcher {
             previous_output : None,
             feedback        : None,
         };
+        
         let mut final_output: Option<String> = None;
 
         while task_context.trial <= MAX_RETRIES {
 
             // task handling
             let worker_prompt     : String = task_context.to_worker_prompt();
+            
             let worker_full_output: String = StreamForwarder::generate(
                 worker,
                 &worker_prompt,
@@ -177,8 +200,9 @@ impl Dispatcher {
             
             // sentinel validation
             let sentinel_prompt     : String = task_context.to_sentinel_prompt(&worker_full_output);
+            
             let sentinel_full_output: String = StreamForwarder::generate(
-                "Sentinel",
+                sentinel,
                 &sentinel_prompt,
                 &sentinel_client,
                 board.clone(),
