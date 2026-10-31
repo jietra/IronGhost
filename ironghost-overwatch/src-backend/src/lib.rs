@@ -7,3 +7,4 @@ pub mod observers;
 pub mod stores;
 pub mod llm;
 pub mod workers;
+pub mod knowledge_manager;

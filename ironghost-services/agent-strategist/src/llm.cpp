@@ -137,7 +137,7 @@ std::string LLM::generate(const std::string& user_prompt) {
     std::string response = run_llm(full_prompt);
 
     // add response to messages
-    add_response(response);
+    //add_response(response);
 
     return response;
 }
@@ -311,16 +311,32 @@ void LLM::reset_sampler(const SamplingParams & params) {
 void LLM::reset_messages() {
     text_storage.clear();
     messages.clear();
-    add_message("system", system_prompt);
+
     reset_kv_cache();
+
+    add_message("system", system_prompt);
 }
 
 void LLM::reset_all() {
-    reset_sampler();
-    reset_messages();
+    //reset_sampler();
+    //reset_messages();
+    text_storage.clear();
+    messages.clear();
+
+    reset_context();
+
+    add_message("system", system_prompt);
 }
 
 void LLM::reset_kv_cache() {
+    if (ctx) {
+        llama_memory_t memory = llama_get_memory(ctx);
+
+        if (memory) {
+            llama_memory_clear(memory, true);
+        }
+    }
+
     kv_len       = 0;
     kv_len_token = 0;
 }

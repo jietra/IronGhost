@@ -7,17 +7,20 @@ use tokio::sync::{
     MutexGuard
 };
 use chrono::Utc;
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 
 use crate::core::{
-    board::{Board, BoardEvent, BoardMessage},
-    mission::Mission,
-    mission_assessment::{AssessmentArtifact, AssessmentContext, NextAction, Action, ObserverOutput, StrategistOutput}
+    board::{Board, BoardEvent, BoardMessage}, mission::Mission, mission_assessment::{Action, AssessmentArtifact, AssessmentContext, NextAction, ObserverOutput, StrategistOutput}, mission_knowledge::{KnowledgeCard, MissionKnowledge}
+};
+use crate::knowledge_manager::{
+    card_extractor::{ConceptRef, extract_concepts},
+    card_prompt::build_card_upsert_prompt
 };
 use crate::agents::agent_buffer::AgentBuffer;
 use crate::llm::{
     llm::LLM,
-    stream_forwarder::StreamForwarder
+    stream_forwarder::StreamForwarder,
+    response_parser::extract_json,
 };
 use crate::stores::source_store::FolderTree;
 use crate::workers::dispatcher::Dispatcher;
@@ -155,15 +158,11 @@ impl Agent {
         match payload.as_str() {
 
             "!Initiate_Mission" => {
-                // vvvvvvvvvvvvvvvv
-                let budget: u32 = 2;
+                
+                let budget: u32 = 10;
                 // ^^^^^^^^^^^^^^^^
                 // we set a budget = max iterations in assessment loop
-                // NB: llm context overflow with current design around 7-8 iterations
-                // => "full context" will be replaced by a preliminary report
-                // (summarizing current loop assessment)
-                // (mission knowledge design)
-                // TODO: put budget in configuration parameters.
+                // TODO: put budget in configuration parameters or call args, or default
                 // OPTIM: fine-grain budgeting with websearch budget, sub-mission budget (depth), next_move batch budget etc.
                 //
                 
@@ -171,7 +170,7 @@ impl Agent {
                 
                 self.refresh_source_tree().await?;
                 
-                self.launch_mission_assessment(budget).await?;
+                self.execute_mission_assessment(budget).await?;
 
             }
 
@@ -210,31 +209,71 @@ impl Agent {
     // mission assessment loop
     // ----------------------------
 
-    async fn launch_mission_assessment( &mut self, budget: u32 ) -> Result<()> {
-
-        let mission: Mission = {
-            let board: MutexGuard<'_, Board> = self.board.lock().await;
-
-            board.current_mission()
-        };
+    async fn execute_mission_assessment( &mut self, budget: u32 ) -> Result<()> {
         
-        let mut assessment_context: AssessmentContext = AssessmentContext {
-            mission_prompt      : mission.prompt,
-            source_tree_list    : mission.knowledge.source_tree_list,
-            
-            previous_assessment : None,
-            observer_output     : None,
-            iteration           : 0,
-            budget              : budget,
-        };
+        let mut pending_observation: Option<ObserverOutput> = None;
 
         for iteration in 0..budget {
 
+            let is_last_iteration: bool = iteration + 1 >= budget;
+
+            // 1. Build assessment context
+            let mission: Mission = {
+                let board: MutexGuard<'_, Board> = self.board.lock().await;
+                board.current_mission()
+            };
+
+            let assessment_context: AssessmentContext = AssessmentContext {
+                mission             : mission,
+                observer_output     : pending_observation.clone(),
+                iteration           : iteration,
+                budget              : budget,
+            };
+
             println!("[AGENT] mission iteration {}", iteration);
 
-            let current_assessment: AssessmentArtifact =
+            // 2. Update assessment: strategist consumes the pending observation.
+            let mut current_assessment: AssessmentArtifact =
                 // send to agent
-                self.run_assessment_round(&mut assessment_context).await?;
+                self.run_assessment_round(&assessment_context).await?;
+
+/*
+            // 3. Prepare knowledge updates from the same observation.
+            let updated_cards: Vec<KnowledgeCard> = match pending_observation.as_ref() {
+                Some(observer_output) => {
+                    self.prepare_knowledge_updates(
+                        &assessment_context.mission.prompt,
+                        &current_assessment.assessment_report,
+                        observer_output,
+                    )
+                    .await?
+                }
+
+                None => Vec::new(),
+            };
+*/
+
+            // 4. Persist a consistent knowledge snapshot: update board with assessment result AND update knowledge (keep it coherent)
+            {
+                let mut board: MutexGuard<'_, Board> = self.board.lock().await;
+                let knowledge: &mut MissionKnowledge = &mut board.mission.knowledge;
+
+                // cards update
+//                for card in updated_cards { knowledge.upsert_card(card)?; }
+
+                // assessment update
+                knowledge.current_assessment = Some(current_assessment.clone());
+            }
+            
+            // 5. Execute next move
+
+            if is_last_iteration {
+                current_assessment.next_move = NextAction {
+                    intention: "Assessment budget exhausted.".into(),
+                    action: Action::Finish,
+                    target: String::new(),
+                };
+            }
 
             match &current_assessment.next_move.action {
 
@@ -246,17 +285,13 @@ impl Agent {
                 _ => {
                     println!("[AGENT] executing next move {:?}", &current_assessment.next_move);
 
-                    assessment_context.observer_output = Some(
+                    pending_observation = Some(
                         // send to worker
                         self.execute_next_move( &current_assessment.next_move ).await?
                     );
                 }                
             }
-
-            //previous = artifact;
-            assessment_context.previous_assessment = Some(current_assessment);
-            assessment_context.iteration = iteration + 1;
-        
+            
         }
 
         Ok(())
@@ -266,7 +301,7 @@ impl Agent {
     // send to agent LLM
     // ----------------------------
 
-    async fn run_assessment_round ( &mut self, assessment_context: &mut AssessmentContext ) -> Result<AssessmentArtifact> {
+    async fn run_assessment_round ( &mut self, assessment_context: &AssessmentContext ) -> Result<AssessmentArtifact> {
 
         let prompt: String = assessment_context.to_prompt();
 
@@ -291,29 +326,11 @@ impl Agent {
             )?;
         
         println!("DEBUG strategist_output done");
-        
-        /*
-        let intention: String   = strategist_output.next_action.intention;
-        let target   : String   = strategist_output.next_action.target;
-        let next_move: NextMove =
-            match strategist_output.next_action.action.as_str() {
-                "FileReader" => NextMove {
-                    intention,
-                    action: Action::FileReader { path: target }
-                },
-
-                // ...
-
-                _ => NextMove::default(),
-            };
-
-        println!("next_move: {:?}", next_move);
-        */
 
         let artifact: AssessmentArtifact = AssessmentArtifact {
-            iteration   : assessment_context.iteration,
-            analysis    : strategist_output.analysis,
-            next_move   : strategist_output.next_move,
+            iteration           : assessment_context.iteration,
+            assessment_report   : strategist_output.assessment_report,
+            next_move           : strategist_output.next_move,
         };
 
         println!("artifact: {:?}", artifact);
@@ -338,103 +355,281 @@ impl Agent {
     // ----------------------------
 
     async fn execute_next_move( &mut self, next_move: &NextAction ) -> Result<ObserverOutput> {
-        // TODO: execute_next_move ((board), next_move)
-
-        let mut observer_output: ObserverOutput = ObserverOutput::default();
         
         match &next_move.action {
 
             Action::FileReader => {
-                // TODO: self.execute_file_reader((board), next_move).await
-
-                let path: &String = &next_move.target;
-                println!("FileReader on path {}", path);
-
-                // execute FileReader tool
-                let file_content: String = {
-                    let board_guard: MutexGuard<'_, Board> = self.board.lock().await;
-
-                    board_guard.registry
-                        .observer_registry()
-                        .file_reader.execute(path)?
-                };
-
-                // prompt for worker
-                let prompt: String = format!(
-                    r#"
-                    OBJECTIVE
-                    =========
-                    {}
-
-                    SOURCE IDENTIFIER
-                    =================
-                    {}
-
-                    SOURCE CONTENT
-                    ==============
-                    {}
-                    "#,
-                    next_move.intention,
-                    path,
-                    file_content,
-                );
-
-                println!("prompt {}", prompt);
-
-                // send to FileReader worker
-                let dispatcher: Dispatcher = {
-                    let board_guard: MutexGuard<'_, Board> = self.board.lock().await;
-
-                    board_guard.registry
-                        .dispatcher()
-                };
-
-                let response: String = dispatcher.execute(
-                    "reading file...",
-                    "worker-generic",
-                    "sentinel-generic",
-                    &prompt,
-                    self.board.clone()
-                ).await
-                .unwrap_or_else(|e| {
-                    format!("unable to generate response: {}", e)
-                });
-
-                println!("response {}", response);
-
-                // observer output
-                observer_output =
-                    serde_json::from_str::<ObserverOutput>(
-                        &response
-                    )?;
-
+                self.execute_file_reader(next_move).await
             }
 
             Action::WebSearcher => {
                 // TODO
+                Err(anyhow!("WebSearcher is not implemented"))
             }
 
             Action::WebReader => {
                 // TODO
+                Err(anyhow!("WebReader is not implemented"))
             }
 
             Action::AskForMoreContext => {
                 // TODO
+                Err(anyhow!("AskForMoreContext is not implemented"))
             }
 
-            _ => {}
+            Action::FolderExplorer => {
+                Err(anyhow!("FolderExplorer is not implemented"))
+            }
+
+            Action::Finish => {
+                Err(anyhow!(
+                    "Finish must not be executed as an observation action"
+                ))
+            }
+
+            //_ => {Err(anyhow!("Requested action not found"))}
+        }
+
+    }
+
+    async fn execute_file_reader( &self, next_move: &NextAction ) -> Result<ObserverOutput> {
+        let path: &String = &next_move.target;
+        println!("FileReader on path {}", path);
+
+        // execute FileReader tool
+        let file_content: String = {
+            let board_guard: MutexGuard<'_, Board> = self.board.lock().await;
+
+            board_guard.registry
+                .observer_registry()
+                .file_reader.execute(path)?
+        };
+
+        // prompt for worker
+        let prompt: String = format!(
+            r#"
+            OBJECTIVE
+            =========
+            {}
+
+            SOURCE IDENTIFIER
+            =================
+            {}
+
+            SOURCE CONTENT
+            ==============
+            {}
+            "#,
+            next_move.intention,
+            path,
+            file_content,
+        );
+
+        println!("prompt {}", prompt);
+
+        // send to FileReader worker
+        let dispatcher: Dispatcher = {
+            let board_guard: MutexGuard<'_, Board> = self.board.lock().await;
+
+            board_guard.registry
+                .dispatcher()
+        };
+
+        let response: String = dispatcher.execute(
+            "reading file...",
+            "worker-generic",
+            "sentinel-generic",
+            &prompt,
+            self.board.clone()
+        ).await
+        .map_err(|error| {
+            anyhow!(
+                "observation worker failed for source {:?}: {}",
+                path,
+                error
+            )
+        })?;
+
+        println!("response {}", response);
+
+        // observer output
+        let json: &str = extract_json(&response)
+            .ok_or_else(|| {
+                anyhow!(
+                    "unable to extract ObserverOutput JSON for source {:?}",
+                    path
+                )
+            })?;
+
+        let observer_output: ObserverOutput = serde_json::from_str::<ObserverOutput>(json)
+            .with_context(|| {
+                format!(
+                    "failed to parse ObserverOutput for source {:?}",
+                    path
+                )
+            })?;
+
+        // avoid inconsistency in source_id
+        if observer_output.source_id != *path {
+            return Err(anyhow!(
+                "observer returned source_id {:?}, expected {:?}",
+                observer_output.source_id,
+                path
+            ));
+        }
+        
+        {
+            let mut board_guard = self.board.lock().await;
+
+            board_guard
+                .mission
+                .knowledge
+                .source_visited
+                .insert(next_move.target.clone());
         }
 
         Ok(observer_output)
     }
 
-}
+    // ----------------------------
+    // update mission knowledge
+    // ----------------------------
 
-// helper
-fn extract_json(response: &str) -> Option<&str> {
-    if let Some(pos) = response.rfind("</think>") {
-        return Some(response[pos + "</think>".len()..].trim());
+    async fn prepare_knowledge_updates(
+        &self,
+        mission_prompt : &str,
+        assessment     : &str,
+        observer_output: &ObserverOutput,
+    ) -> Result<Vec<KnowledgeCard>> {
+        let concepts: Vec<ConceptRef> = extract_concepts(assessment);
+        let mut updated_cards: Vec<KnowledgeCard> = Vec::with_capacity(concepts.len());
+        
+        for concept in concepts {
+            let updated_card: KnowledgeCard = self.generate_updated_card(
+                mission_prompt,
+                &concept,
+                observer_output
+            ).await?;
+
+            updated_cards.push(updated_card);
+        }
+
+        Ok(updated_cards)
     }
 
-    Some(response.trim())
+    async fn generate_updated_card(
+        &self,
+        mission_prompt : &str,
+        concept        : &ConceptRef,
+        observer_output: &ObserverOutput,
+    ) -> Result<KnowledgeCard> {
+        let current_card: Option<KnowledgeCard> = {
+            let board: MutexGuard<'_, Board> = self.board.lock().await;
+
+            board
+                .mission
+                .knowledge
+                .get_card_cloned(&concept.id)
+        };
+
+        let prompt: String = build_card_upsert_prompt(
+            mission_prompt,
+            concept,
+            current_card.as_ref(),
+            observer_output,
+        )?;
+
+        let dispatcher: Dispatcher = {
+            let board: MutexGuard<'_, Board> = self.board.lock().await;
+            board.registry.dispatcher()
+        };
+
+        let response: String = dispatcher
+            .execute(
+                &format!("upsert knowledge card {}", concept.id),
+                "worker-knowledge",
+                "sentinel-knowledge",
+                &prompt,
+                self.board.clone(),
+            )
+            .await
+            .map_err(|e| anyhow!(
+                "failed to update KnowledgeCard {:?}: {}",
+                concept.id,
+                e
+            ))?;
+
+        let json: &str = extract_json(&response)
+            .ok_or_else(|| {
+                anyhow!(
+                    "unable to extract KnowledgeCard JSON for {:?}",
+                    concept.id
+                )
+            })?;
+            
+        //let mut updated_card: KnowledgeCard =
+        let updated_card: KnowledgeCard =
+            serde_json::from_str(json)
+                .with_context(|| {
+                    format!(
+                        "failed to parse KnowledgeCard {:?}",
+                        concept.id
+                    )
+                })?;
+
+        if updated_card.id != concept.id {
+            return Err(anyhow!(
+                "knowledge worker returned card id {:?}, expected {:?}",
+                updated_card.id,
+                concept.id,
+            ));
+        }
+
+        if updated_card.title != concept.title {
+            return Err(anyhow!(
+                "knowledge worker returned title {:?}, expected {:?}",
+                updated_card.title,
+                concept.title
+            ));
+        }
+
+        /*
+        if !updated_card.references.contains(&observer_output.source_id) {
+            updated_card
+                .references
+                .push(observer_output.source_id.clone());
+        }
+
+        updated_card.references.sort();
+        updated_card.references.dedup();
+        */
+
+        /*
+        {
+            let mut board: MutexGuard<'_, Board> = self.board.lock().await;
+
+            let previous: Option<KnowledgeCard> =
+                board
+                    .mission
+                    .knowledge
+                    .upsert_card(updated_card)?;
+            
+            match previous {
+                Some(old_card) => {
+                    println!(
+                        "Updated card {} from status {:?}",
+                        old_card.id,
+                        old_card.status
+                    );
+                }
+                None => {
+                    println!("Created new card");
+                }
+            }
+        }
+        */
+
+        Ok(updated_card)
+    }
+
 }

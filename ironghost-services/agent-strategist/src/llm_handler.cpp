@@ -11,6 +11,9 @@ void LLMHandler::operator()(const std::string& prompt) {
     llm.generate(prompt);
     auto end = std::chrono::high_resolution_clock::now();
 
+    // specific to specialized agents (amnesia)
+    llm.reset_all();
+
     std::cout << "Generation took "
               << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
               << " ms\n";
