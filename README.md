@@ -8,36 +8,47 @@
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux-lightgrey.svg)](https://apple.com)
 [![Architecture](https://img.shields.io/badge/Architecture-Montesquieu--C3-red.svg)](#-philosophy-the-montesquieu-c3-protocol)
 
-> **Mission-driven orchestration for untrusted AI agents.**
+> **A distributed cognition system for mission-driven, zero-trust AI orchestration.**
 
 ---
 
 AI systems should propose.
-Deterministic systems should execute.
+Deterministic systems should govern execution.
 
-IronGhost separates cognition, orchestration and execution through a mission-centric architecture where LLMs are treated as untrusted components.
+IronGhost is a distributed cognition system implemented through specialized agents, explicit memory structures, verification mechanisms and tools.
+
+Rather than asking one model to perceive, remember, reason, verify and decide simultaneously, IronGhost decomposes cognition into narrow state transformations.
+Persistent mission state, evidence and evolving beliefs are maintained outside individual LLM contexts.
 
 ```code
-AI Agents
-      │
-      ▼
- Mission Graph
-      │
-      ▼
- Mission Compiler
-      │
-      ▼
- Execution DAG
-      │
-      ▼
- Sentinels
-      │
-      ▼
- Human Approval
-      │
-      ▼
- Deterministic Workers
+             Strategist
+        Assessment / Attention
+                  │
+                  ▼
+              Observer
+          Local Perception
+                  │
+                  ▼
+           Observer Artifact
+                  │
+                  ▼
+          Knowledge System
+       Cards / Claims / Evidence
+                  │
+                  ▼
+          Mission Assessment
+                  │
+                  ▼
+           Mission Graph
+                  │
+                  ▼
+          Human Approval
+                  │
+                  ▼
+          Execution Layer
 ```
+
+Cognition is distributed across specialized components rather than concentrated inside a single long-lived agent. LLM contexts remain bounded and disposable; continuity is carried by explicit system state.
 
 ## 🎬 Demo video
 
@@ -47,17 +58,25 @@ AI Agents
 
 **IronGhost** treats LLMs as *untrusted cognitive components*. They may propose plans, code and assessments, but they never execute actions directly. The Mission Graph is the sole source of truth.
 
-### Mission Graph
+### Explicit Mission State
 
-The Mission Graph is the persistent state of the system.
+IronGhost does not rely on LLM context as the authoritative memory of a mission.
+
+Persistent mission state is represented explicitly through several complementary structures:
+
+- **Assessment** — compact working memory and global decision state;
+- **Knowledge Cards** — durable concept-level knowledge;
+- **Knowledge Claims** — atomic propositions with epistemic status and evidence provenance;
+- **Mission Graph** — structured operational plan proposed by the cognitive layer;
+- **Execution DAG** — deterministic projection of approved operational work.
 
 Agents are transient.
 
-Contexts are discarded.
+Contexts are disposable.
 
 Messages are ephemeral.
 
-The Mission Graph is the only authoritative representation of the mission.
+Mission continuity belongs to explicit system state, not to any individual LLM.
 
 ### Mission-Centric Architecture
 
@@ -100,30 +119,50 @@ IronGhost assumes that every LLM can:
 Therefore:
 
 - agents are isolated
-- specialized agents use an amnesia protocol
-- sentinels independently validate outputs
-- workers are deterministic
-- execution authority remains outside the AI layer
+- specialized Workers use an amnesia protocol
+- Worker outputs are independently evaluated by Sentinels
+- persistent knowledge is stored outside individual LLM contexts
+- deterministic Executors retain operational authority
+- execution authority remains outside the cognitive AI layer
 
 ### The Amnesia Protocol
 
-IronGhost deliberately avoids long-lived cognitive state.
+IronGhost deliberately separates cognitive continuity from model context.
 
-Specialized agents:
+Specialized Workers:
 
-- receive a bounded task
-- complete the task
-- publish outputs to the Mission Graph
-- discard their context
+- receive a bounded task and explicit context;
+- perform one narrow cognitive operation;
+- produce a structured artifact;
+- are independently evaluated by a Sentinel;
+- discard their inference context after completion.
 
-This prevents:
+Long-term continuity is externalized into explicit mission structures such as Assessments, Knowledge Cards, Claims and Mission Graphs.
 
-- cognitive drift
-- hidden state accumulation
-- context poisoning
-- non-reproducible decisions
+This architecture reduces:
 
-Persistent state belongs to the Mission Graph, not to the agents.
+- cognitive drift;
+- hidden state accumulation;
+- context poisoning;
+- accidental dependence on conversation history;
+- non-reproducible implicit memory.
+
+The goal is not to eliminate memory, but to move memory out of individual models and into explicit, inspectable system state.
+
+### Recursive Assessment
+
+The Strategist maintains a compact, disposable assessment of the current mission state.
+
+Rather than following a fixed investigation workflow, it repeatedly decides whether the highest-value next step is to:
+
+1. request another focused observation;
+2. refine the current assessment from new evidence; or
+3. stop assessment early and emit a Mission Graph for distributed operational
+   investigation.
+
+The assessment budget is therefore a maximum cognitive budget, not a required number of reasoning iterations.
+
+This allows IronGhost to alternate between sequential investigation and graph-based delegation depending on expected information gain.
 
 ### Dual-Channel Governance
 
@@ -134,9 +173,9 @@ While traditional AI agent frameworks often grant Large Language Models (LLMs) d
    * **Hierarchical Command & Control (C2)**: A strict command chain. Human Operators hold the highest authority and validate actions before execution. The Mission Graph, is rendered in real time, and is translated into an execution graph (deterministic) under strict automated (sentinels) and human supervision.
 2. **Strict Isolation & Execution Safety**:
    * **No Direct AI Execution**: LLMs *cannot* execute code. They are either cognitive advisors, specialized agents or sentinels (with amnesia protocol) with no execution runtimes.
-   * **Deterministic Workers**: Execution is offloaded to isolated, non-AI worker environments (e.g., dedicated Kali Linux VMs) running deterministic, curated scripts.
+   * **Deterministic Executors**: Operational execution is offloaded to isolated, non-AI environments (e.g. dedicated Kali Linux VMs) running controlled execution logic.
    * **Safe Orchestration**: A central **Rust Orchestrator** manages message routing, state transitions, human validations, and alert escalations without using any internal LLM logic.
-   * **Sentinel Filtering**: Special agents, *Sentinels*, are tasked to filter all code before they reach workers. Sentinels are isolated from other AI agents, and have an *amnesia* protocol (stateless - clear KV-cache etc.).
+   * **Sentinel Filtering**: Specialized Workers are paired with independent Sentinels that evaluate their structured outputs before acceptance by the cognitive pipeline. Higher-level cognitive Agents may use different governance mechanisms.
 
 Example of action process:
 
@@ -164,6 +203,20 @@ Example of action process:
                   +-------------------------------+
 ```
 
+### Agents, Workers, Sentinels and Executors
+
+IronGhost distinguishes several cognitive and operational roles:
+
+- **Agents** are higher-level cognitive actors such as the *Strategist*. They may maintain mission-level reasoning loops and communicate through the Board.
+
+- **Workers** are specialized, task-bounded LLM agents. A Worker performs one narrow cognitive transformation such as source observation or knowledge consolidation. Workers do not communicate freely through the Board.
+
+- **Sentinels** independently evaluate Worker outputs before those outputs are accepted by the surrounding cognitive pipeline. Worker + Sentinel pairs are orchestrated through the Dispatcher.
+
+- **Executors** are deterministic, non-LLM components responsible for carrying out approved operational actions in controlled environments.
+
+This separation keeps cognition, verification, orchestration and execution as distinct responsibilities.
+
 ---
 
 ## What IronGhost Is Not
@@ -175,7 +228,7 @@ IronGhost is not:
 - a direct Tool-Use runtime
 - an AGI experimentation platform
 
-IronGhost is a mission execution architecture where AI proposes and deterministic systems execute.
+IronGhost is a distributed cognition and mission orchestration architecture where specialized AI components perceive, consolidate, verify and plan, while explicit system state preserves continuity and deterministic systems retain execution authority.
 
 ---
 
@@ -280,7 +333,11 @@ mkdir models
 
 Import your models in this directory.
 
-Other sub-directories in `ironghost-services/` correspond to independant inference services (you can create as many services as you need - providing your machine can hold them). Three examples are given in this repo: 2 cognitive agents (statefull): `agent-strategist`, and `agent-generic`; and a specialized agent: `spec-agent-coder` (stateless).
+Other sub-directories in `ironghost-services/` correspond to independant inference services (you can create as many services as you need - providing your machine can hold them).
+
+Inference services can host different cognitive roles, including higher-level Agents, specialized Workers and Sentinels. Roles may use different models, system prompts and GBNF grammars depending on their cognitive responsibility.
+
+Current examples include a Strategist as well as specialized Observer, Knowledge Worker and Sentinel services.
 
 For each service:
 
@@ -327,7 +384,14 @@ npm run tauri:dev
 - [x] Lean C++ Binary LLM IPC Service over Unix Domain Sockets
 - [x] Asynchronous Rust Board Orchestrator & Event Pipeline
 - [x] Real-time Svelte/Tauri Tactical Overwatch Dashboard
-- [x] Dynamic Mission Knowledge Graph Generation (<mission_state>)
+- [x] Structured Mission Graph Generation (GBNF-constrained JSON)
+- [x] Recursive Strategist assessment loop
+- [x] Specialized Observer + Sentinel perception pipeline
+- [x] Concept-routed Knowledge Cards
+- [x] Atomic Knowledge Claims with evidence and epistemic status
+- [x] Knowledge Worker + Sentinel consolidation pipeline
+- [ ] Knowledge Events and belief-revision propagation
+- [ ] Strategist auditing / governance
 - [x] Implementation of Mission Graph runner with parallel execution (execution DiGraph)
 - [x] Introduction of ironghost-executor service
 - [x] Environment / Runtime execution abstraction

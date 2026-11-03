@@ -21,7 +21,7 @@ use crate::core::board::{
 use crate::agents::{
     agent::Agent,
 };
-use crate::observers::{
+use crate::observation_tools::{
     file_reader::FileReader,
     folder_explorer::FolderExplorer,
     web_searcher::WebSearcher,

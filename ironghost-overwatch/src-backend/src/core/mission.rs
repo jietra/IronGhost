@@ -2,7 +2,7 @@
 
 use serde::{Serialize, Deserialize};
 
-use crate::core::mission_knowledge::MissionKnowledge;
+use crate::knowledge::mission_knowledge::MissionKnowledge;
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct Mission {

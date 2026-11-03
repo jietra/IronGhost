@@ -1,8 +1,10 @@
 // src/knowledge_manager/card_extractor.rs
 
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use std::sync::LazyLock;
 use regex::Regex;
+
+use crate::observation::observation::ObserverOutput;
 
 static WIKI_LINK_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\[\[([^\[\]]+)\]\]")
@@ -13,6 +15,26 @@ static WIKI_LINK_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 pub struct ConceptRef {
     pub id   : String,
     pub title: String,
+}
+
+pub fn extract_observer_concepts(
+    observer_output: &ObserverOutput,
+) -> Vec<ConceptRef> {
+    let mut concepts: Vec<ConceptRef> = Vec::new();
+
+    for observation in &observer_output.observations {
+        concepts.extend(
+            extract_concepts(&observation.statement)
+        );
+    }
+
+    for hypothesis in &observer_output.hypotheses {
+        concepts.extend(
+            extract_concepts(&hypothesis.statement)
+        );
+    }
+
+    deduplicate_concepts(concepts)
 }
 
 pub fn extract_concepts(text: &str) -> Vec<ConceptRef> {
@@ -119,3 +141,36 @@ mod tests {
     }
 }
 
+pub fn deduplicate_concepts(
+    concepts: impl IntoIterator<Item = ConceptRef>,
+) -> Vec<ConceptRef> {
+    let mut unique: HashMap<String, ConceptRef> =
+        HashMap::new();
+
+    for concept in concepts {
+        let key: String = normalize_concept_title(
+            &concept.title,
+        );
+
+        unique.entry(key).or_insert(concept);
+    }
+
+    let mut concepts: Vec<ConceptRef> =
+        unique.into_values().collect();
+
+    concepts.sort_by(|a, b| {
+        a.title.cmp(&b.title)
+    });
+
+    concepts
+}
+
+fn normalize_concept_title(
+    title: &str,
+) -> String {
+    title
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}

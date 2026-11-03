@@ -9,11 +9,22 @@ use tokio::sync::{
 use chrono::Utc;
 use anyhow::{Context, Result, anyhow};
 
-use crate::core::{
-    board::{Board, BoardEvent, BoardMessage}, mission::Mission, mission_assessment::{Action, AssessmentArtifact, AssessmentContext, NextAction, ObserverOutput, StrategistOutput}, mission_knowledge::{KnowledgeCard, MissionKnowledge}
+use crate::{core::{
+    board::{Board, BoardEvent, BoardMessage},
+    mission::{Mission, MissionGraph},
+}, knowledge::card::KnowledgeCardDraft};
+use crate::assessment::{
+    context::AssessmentContext,
+    assessment::{AssessmentArtifact, StrategistOutput},
+    action::{Action, NextAction}
+};
+use crate::observation::observation::ObserverOutput;
+use crate::knowledge::{
+    card::KnowledgeCard,
+    mission_knowledge::MissionKnowledge
 };
 use crate::knowledge_manager::{
-    card_extractor::{ConceptRef, extract_concepts},
+    card_extractor::{ConceptRef, extract_observer_concepts},
     card_prompt::build_card_upsert_prompt
 };
 use crate::agents::agent_buffer::AgentBuffer;
@@ -159,7 +170,7 @@ impl Agent {
 
             "!Initiate_Mission" => {
                 
-                let budget: u32 = 10;
+                let budget: u32 = 2;
                 // ^^^^^^^^^^^^^^^^
                 // we set a budget = max iterations in assessment loop
                 // TODO: put budget in configuration parameters or call args, or default
@@ -237,13 +248,13 @@ impl Agent {
                 // send to agent
                 self.run_assessment_round(&assessment_context).await?;
 
-/*
+
             // 3. Prepare knowledge updates from the same observation.
             let updated_cards: Vec<KnowledgeCard> = match pending_observation.as_ref() {
                 Some(observer_output) => {
                     self.prepare_knowledge_updates(
                         &assessment_context.mission.prompt,
-                        &current_assessment.assessment_report,
+                        //&current_assessment.assessment_report,
                         observer_output,
                     )
                     .await?
@@ -251,29 +262,53 @@ impl Agent {
 
                 None => Vec::new(),
             };
-*/
 
-            // 4. Persist a consistent knowledge snapshot: update board with assessment result AND update knowledge (keep it coherent)
-            {
-                let mut board: MutexGuard<'_, Board> = self.board.lock().await;
-                let knowledge: &mut MissionKnowledge = &mut board.mission.knowledge;
-
-                // cards update
-//                for card in updated_cards { knowledge.upsert_card(card)?; }
-
-                // assessment update
-                knowledge.current_assessment = Some(current_assessment.clone());
-            }
-            
-            // 5. Execute next move
-
+            // 4. Force Finish if budget is exhausted
             if is_last_iteration {
                 current_assessment.next_move = NextAction {
                     intention: "Assessment budget exhausted.".into(),
                     action: Action::Finish,
-                    target: String::new(),
+                    target: None,
                 };
             }
+
+            // 5. Update board: persist a consistent knowledge snapshot (update assessment result AND knowledge)
+            let graph_event: Option<MissionGraph> = {
+                let mut board: MutexGuard<'_, Board> = self.board.lock().await;
+                let knowledge: &mut MissionKnowledge = &mut board.mission.knowledge;
+
+                // cards update
+                for card in updated_cards { knowledge.upsert_card(card)?; }
+
+                // assessment update
+                knowledge.current_assessment = Some(current_assessment.clone());
+
+                if let Some(mission_graph) =
+                    current_assessment.mission_graph.as_ref()
+                {
+                    board.mission.graph = mission_graph.clone();
+                    //let _ = board.tx.send(BoardEvent::MissionState(mission_graph.clone()));
+                    Some(mission_graph.clone())
+                } else {
+                    None
+                }
+            };
+
+            if let Some(graph) = graph_event {
+                let board: MutexGuard<'_, Board> = self.board.lock().await;
+                if let Err(error) = board.tx.send(
+                    BoardEvent::MissionState(
+                        graph
+                    )
+                ) {
+                    eprintln!(
+                        "[AGENT] WARNING: failed to publish MissionState: {}",
+                        error
+                    );
+                }
+            }
+            
+            // 6. Execute next move
 
             match &current_assessment.next_move.action {
 
@@ -331,6 +366,7 @@ impl Agent {
             iteration           : assessment_context.iteration,
             assessment_report   : strategist_output.assessment_report,
             next_move           : strategist_output.next_move,
+            mission_graph       : strategist_output.mission_graph,
         };
 
         println!("artifact: {:?}", artifact);
@@ -393,7 +429,11 @@ impl Agent {
     }
 
     async fn execute_file_reader( &self, next_move: &NextAction ) -> Result<ObserverOutput> {
-        let path: &String = &next_move.target;
+        let path = next_move
+            .target.as_ref()
+            .ok_or_else(|| {
+                anyhow!("FileReader requires a target")
+            })?;
         println!("FileReader on path {}", path);
 
         // execute FileReader tool
@@ -485,7 +525,7 @@ impl Agent {
                 .mission
                 .knowledge
                 .source_visited
-                .insert(next_move.target.clone());
+                .insert(path.clone());
         }
 
         Ok(observer_output)
@@ -498,17 +538,17 @@ impl Agent {
     async fn prepare_knowledge_updates(
         &self,
         mission_prompt : &str,
-        assessment     : &str,
         observer_output: &ObserverOutput,
+        //assessment     : &str,
     ) -> Result<Vec<KnowledgeCard>> {
-        let concepts: Vec<ConceptRef> = extract_concepts(assessment);
+        let concepts         : Vec<ConceptRef>    = extract_observer_concepts(observer_output);
         let mut updated_cards: Vec<KnowledgeCard> = Vec::with_capacity(concepts.len());
         
         for concept in concepts {
             let updated_card: KnowledgeCard = self.generate_updated_card(
                 mission_prompt,
+                observer_output,
                 &concept,
-                observer_output
             ).await?;
 
             updated_cards.push(updated_card);
@@ -520,8 +560,8 @@ impl Agent {
     async fn generate_updated_card(
         &self,
         mission_prompt : &str,
-        concept        : &ConceptRef,
         observer_output: &ObserverOutput,
+        concept        : &ConceptRef,
     ) -> Result<KnowledgeCard> {
         let current_card: Option<KnowledgeCard> = {
             let board: MutexGuard<'_, Board> = self.board.lock().await;
@@ -567,67 +607,22 @@ impl Agent {
                 )
             })?;
             
-        //let mut updated_card: KnowledgeCard =
-        let updated_card: KnowledgeCard =
+        let draft: KnowledgeCardDraft =
             serde_json::from_str(json)
                 .with_context(|| {
                     format!(
-                        "failed to parse KnowledgeCard {:?}",
+                        "failed to parse KnowledgeCard draft {:?}",
                         concept.id
                     )
                 })?;
 
-        if updated_card.id != concept.id {
-            return Err(anyhow!(
-                "knowledge worker returned card id {:?}, expected {:?}",
-                updated_card.id,
-                concept.id,
-            ));
-        }
-
-        if updated_card.title != concept.title {
-            return Err(anyhow!(
-                "knowledge worker returned title {:?}, expected {:?}",
-                updated_card.title,
-                concept.title
-            ));
-        }
-
-        /*
-        if !updated_card.references.contains(&observer_output.source_id) {
-            updated_card
-                .references
-                .push(observer_output.source_id.clone());
-        }
-
-        updated_card.references.sort();
-        updated_card.references.dedup();
-        */
-
-        /*
-        {
-            let mut board: MutexGuard<'_, Board> = self.board.lock().await;
-
-            let previous: Option<KnowledgeCard> =
-                board
-                    .mission
-                    .knowledge
-                    .upsert_card(updated_card)?;
-            
-            match previous {
-                Some(old_card) => {
-                    println!(
-                        "Updated card {} from status {:?}",
-                        old_card.id,
-                        old_card.status
-                    );
-                }
-                None => {
-                    println!("Created new card");
-                }
-            }
-        }
-        */
+        let updated_card: KnowledgeCard =
+            KnowledgeCard::try_from_worker_output(
+                draft,
+                concept,
+                current_card.as_ref(),
+                observer_output,
+            )?;
 
         Ok(updated_card)
     }

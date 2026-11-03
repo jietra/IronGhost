@@ -1,3 +1,6 @@
+ironghost-overwatch/src-backend/src/knowledge_manager/knowledge_manager.rs
+ironghost-overwatch/src-backend/src/knowledge/event.rs
+
 .venv
 .vscode
 
@@ -46,7 +49,9 @@ ironghost-services/sentinel-code/.env
 ironghost-services/sentinel-code/logs
 
 ironghost-services/sentinel-generic
+ironghost-services/sentinel-knowledge
 ironghost-services/worker-generic
+ironghost-services/worker-knowledge
 
 # Rust / Cargo
 /target/

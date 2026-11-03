@@ -1,6 +1,6 @@
 // src/bin/test_web_reader.rs
 
-use backend::observers::web_reader::{WebReader, WebPage};
+use backend::observation_tools::web_reader::{WebReader, WebPage};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

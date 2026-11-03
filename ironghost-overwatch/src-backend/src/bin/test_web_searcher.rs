@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use backend::{
     config::Config,
-    observers::web_searcher::{
+    observation_tools::web_searcher::{
         BraveWebSearcher,
         WebSearcher,
         WebSearchArtifact

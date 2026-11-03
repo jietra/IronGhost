@@ -1,10 +1,13 @@
-// src/core/mission_knowledge.rs
+// src/knowledge/mission_knowledge.rs
 
 use std::collections::{HashMap, HashSet};
 use anyhow::{ensure, Result};
 use serde::{Serialize, Deserialize};
 
-use crate::core::mission_assessment::AssessmentArtifact;
+use crate::{
+    assessment::assessment::AssessmentArtifact,
+    knowledge::card::KnowledgeCard
+};
 
 //
 // -------------------------------------
@@ -19,28 +22,6 @@ pub struct MissionKnowledge {
     
     pub cards               : HashMap<String, KnowledgeCard>,   // all concepts/knowledge in cards
     pub current_assessment  : Option<AssessmentArtifact>,       // "index" of knowledge as an updated, structured assessment
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
-pub struct KnowledgeCard {
-    pub id          : String,
-    pub title       : String,
-    pub status      : CardStatus,
-    pub content     : String,
-    pub references  : Vec<String>,  // raw sources or artifact ids
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum CardStatus {
-    New,
-    Investigating,
-    Supported,
-    Refuted,
-    Resolved,
-}
-
-impl Default for CardStatus {
-    fn default() -> Self { Self::New }
 }
 
 impl MissionKnowledge {
@@ -95,7 +76,7 @@ impl MissionKnowledge {
             card.id
         );
 
-        let card_id = card.id.clone();
+        let card_id: String = card.id.clone();
 
         Ok(self.cards.insert(card_id, card))
     }

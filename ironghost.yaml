@@ -17,12 +17,16 @@ workers:
     socket: /tmp/agent_coder.sock
   worker-generic:
     socket: /tmp/worker_generic.sock
+  worker-knowledge:
+    socket: /tmp/worker_knowledge.sock
 
 sentinels:
   sentinel-code:
     socket: /tmp/sentinel_code.sock
   sentinel-generic:
     socket: /tmp/sentinel_generic.sock
+  sentinel-knowledge:
+    socket: /tmp/sentinel_knowledge.sock
 
 observers:
   web_search:

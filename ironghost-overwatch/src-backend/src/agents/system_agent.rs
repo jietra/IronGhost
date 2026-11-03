@@ -2,7 +2,7 @@
 
 use crate::core::board::{BoardMessage, BoardEvent, Board};
 use crate::core::mission::{Mission, MissionGraph, MissionStatus};
-use crate::core::mission_knowledge::MissionKnowledge;
+use crate::knowledge::mission_knowledge::MissionKnowledge;
 
 use std::sync::Arc;
 use tokio::sync::{Mutex, broadcast, MutexGuard};
