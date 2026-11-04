@@ -4,9 +4,11 @@
 
   // 1. TypeScript interfaces for tactical graph
   interface GraphNode {
-    id    : string;
-    title : string;
-    kind  : 'goal' | 'subgoal' | 'task' | 'asset' | 'vuln' | 'risk';
+    id          : string;
+    title       : string;
+    kind        : 'goal' | 'subgoal' | 'task' | 'asset' | 'vuln' | 'risk';
+    description?: string | null;
+    worker?     : string | null;
   }
 
   interface GraphEdge {
@@ -22,10 +24,12 @@
 
   // Extend NodeObject type
   interface CustomNode extends NodeObject {
-    id  : string;
-    name: string;
-    kind: keyof typeof KIND_COLORS;
-    val : number;
+    id          : string;
+    name        : string;
+    kind        : keyof typeof KIND_COLORS;
+    val         : number;
+    description?: string | null;
+    worker?     : string | null;
   }
 
   // 2. Retrieve (Props)
@@ -57,10 +61,12 @@
     }
     return {
       nodes: mission_graph.nodes.map(n => ({
-        id  : n.id,
-        name: n.title,
-        kind: n.kind,
-        val : n.kind === 'goal' ? 3 : n.kind === 'subgoal' ? 2 : 1
+        id         : n.id,
+        name       : n.title,
+        kind       : n.kind,
+        description: n.description ?? null,
+        worker     : n.worker ?? null,
+        val        : n.kind === 'goal' ? 3 : n.kind === 'subgoal' ? 2 : 1
       })),
       links: mission_graph.edges.map(e => ({
         source: e.from,
@@ -94,6 +100,23 @@
       .nodeVal('val')
       .nodeLabel((node: any) => {
         const n = node as CustomNode;
+
+        const description = n.description
+          ? `<div style="
+              margin-top: 5px;
+              max-width: 320px;
+              color: #cbd5e1;
+              line-height: 1.35;
+            ">${n.description}</div>`
+          : '';
+
+        const worker = n.worker
+          ? `<div style="
+              margin-top: 5px;
+              color: #94a3b8;
+            ">Worker: <strong>${n.worker}</strong></div>`
+          : '';
+          
         return `
           <div style="
             background: rgba(13, 19, 33, 0.95); 
@@ -105,7 +128,12 @@
             color: #fff;
             box-shadow: 0 0 10px rgba(0,0,0,0.5);
           ">
-            <strong style="color: ${KIND_COLORS[n.kind] || '#00f0ff'};">[${n.kind.toUpperCase()}]</strong> ${n.name}
+            <strong style="color: ${KIND_COLORS[n.kind] || '#00f0ff'};">
+              [${n.kind.toUpperCase()}]
+            </strong>
+            ${n.name}
+            ${description}
+            ${worker}
           </div>
         `;
       })

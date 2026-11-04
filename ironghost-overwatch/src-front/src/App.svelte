@@ -31,6 +31,15 @@
   let mission_graph : GraphData                         = $state({ nodes: [], edges: [] });
   let activeStreams : Record<string, ActiveStreamItem>  = $state({});
 
+  function isGraphData(value: unknown): value is GraphData {
+    return (
+      typeof value === "object" &&
+      value !== null &&
+      Array.isArray((value as GraphData).nodes) &&
+      Array.isArray((value as GraphData).edges)
+    );
+  }
+
   onMount(() => {
     try {
       ws           = new WebSocket("ws://127.0.0.1:9000");
@@ -52,7 +61,14 @@
             break;
 
           case "mission_state":
-            mission_graph = data.payload;
+            if (isGraphData(data.payload)) {
+              mission_graph = data.payload;
+            } else {
+              console.warn(
+                "Invalid mission graph payload:",
+                data.payload
+              );
+            }
             break;
 
           case "message":
@@ -299,6 +315,17 @@
     overflow  : hidden;
     position  : relative;
   }
+
+  .empty-graph {
+    height         : 100%;
+    display        : flex;
+    align-items    : center;
+    justify-content: center;
+    color          : #334155;
+    font-size      : 0.72rem;
+    font-weight    : 700;
+    letter-spacing : 1px;
+  }
 </style>
 
 <div class="cyber-app">
@@ -363,8 +390,12 @@
         <span>REALTIME GRAPH</span>
       </div>
       <div class="graph-wrapper">
-        {#if typeof mission_graph === "object"}
+        {#if mission_graph.nodes.length > 0}
           <MissionGraph mission_graph={mission_graph} />
+        {:else}
+          <div class="empty-graph">
+            MISSION GRAPH NOT YET AVAILABLE
+          </div>
         {/if}
       </div>
     </div>

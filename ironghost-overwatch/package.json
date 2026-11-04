@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
+    "dompurify": "^3.4.17",
     "force-graph": "^1.51.4",
     "marked": "^18.0.13"
   }
