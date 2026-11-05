@@ -170,12 +170,10 @@ impl Agent {
 
             "!Initiate_Mission" => {
                 
-                let budget: u32 = 2;
-                // ^^^^^^^^^^^^^^^^
-                // we set a budget = max iterations in assessment loop
-                // TODO: put budget in configuration parameters or call args, or default
-                // OPTIM: fine-grain budgeting with websearch budget, sub-mission budget (depth), next_move batch budget etc.
-                //
+                let budget: u32 = {
+                    let board_guard: MutexGuard<'_, Board> = self.board.lock().await;
+                    board_guard.registry.budget()
+                };
                 
                 println!("[AGENT] Agent {}, initiating mission: {}", self.name, mission_id);
                 
@@ -477,8 +475,8 @@ impl Agent {
 
         let response: String = dispatcher.execute(
             "reading file...",
-            "worker-generic",
-            "sentinel-generic",
+            "worker-observation",
+            "sentinel-observation",
             &prompt,
             self.board.clone()
         ).await

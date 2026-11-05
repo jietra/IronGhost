@@ -1,3 +1,7 @@
+mission:
+  assessment:
+    budget: 2
+
 artifact_store:
   root: ./data/artifacts
 
@@ -9,22 +13,19 @@ agents:
   strategist:
     socket: /tmp/agent_strategist.sock
 
-  generic:
-    socket: /tmp/agent_generic.sock
-
 workers:
-  coder:
-    socket: /tmp/agent_coder.sock
-  worker-generic:
-    socket: /tmp/worker_generic.sock
+  worker-code:
+    socket: /tmp/worker_code.sock
+  worker-observation:
+    socket: /tmp/worker_observation.sock
   worker-knowledge:
     socket: /tmp/worker_knowledge.sock
 
 sentinels:
   sentinel-code:
     socket: /tmp/sentinel_code.sock
-  sentinel-generic:
-    socket: /tmp/sentinel_generic.sock
+  sentinel-observation:
+    socket: /tmp/sentinel_observation.sock
   sentinel-knowledge:
     socket: /tmp/sentinel_knowledge.sock
 

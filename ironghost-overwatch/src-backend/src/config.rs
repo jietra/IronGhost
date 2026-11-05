@@ -37,6 +37,9 @@ use crate::workers::dispatcher::Dispatcher;
 
 #[derive(Debug, Deserialize)]
 pub struct YamlConfig {
+    #[serde(default)]
+    pub mission         : MissionConfig,
+    
     pub artifact_store  : ArtifactStoreConfig,
     pub source_store    : SourceStoreConfig,
     pub agents          : HashMap<String, SocketConfig>,
@@ -44,6 +47,38 @@ pub struct YamlConfig {
     pub sentinels       : HashMap<String, SocketConfig>,
     pub observers       : ObserverConfig,
     pub executors       : HashMap<String, SocketConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct MissionConfig {
+    #[serde(default)]
+    pub assessment: AssessmentConfig,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct AssessmentConfig {
+    #[serde(default = "default_assessment_budget")]
+    pub budget: u32,
+}
+
+fn default_assessment_budget() -> u32 {
+    3
+}
+
+impl Default for MissionConfig {
+    fn default() -> Self {
+        Self {
+            assessment: AssessmentConfig::default(),
+        }
+    }
+}
+
+impl Default for AssessmentConfig {
+    fn default() -> Self {
+        Self {
+            budget: default_assessment_budget(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -116,6 +151,9 @@ pub struct SystemRegistry {
     // Stores
     artifact_store: Arc<FilesystemArtifactStore>,   // file system artifact store only for now
     source_store  : Arc<SourceStore>,
+
+    // Assessment budget
+    budget        : u32,
 }
 
 impl SystemRegistry {
@@ -126,6 +164,7 @@ impl SystemRegistry {
 
         let yaml    : String        = fs::read_to_string(      path    )?;
         let cfg     : YamlConfig    = serde_yaml::from_str(    &yaml   )?;
+        // TODO: evaluate serde_yaml -> yaml_serde
 
         // config
         let config  : Arc<Config>   = Arc::new(Config::load()?);
@@ -165,6 +204,7 @@ impl SystemRegistry {
             executors   : cfg.executors.into_iter().map(|(k,v)| (k, v.socket)).collect(),
             artifact_store,
             source_store,
+            budget      : cfg.mission.assessment.budget,
         })
     }
 
@@ -212,6 +252,10 @@ impl SystemRegistry {
 
     pub fn dispatcher( self: &Arc<Self> ) -> Dispatcher {
         Dispatcher::new(self.clone())
+    }
+
+    pub fn budget( &self ) -> u32 {
+        self.budget
     }
 
 }

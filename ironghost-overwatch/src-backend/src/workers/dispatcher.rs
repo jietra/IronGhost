@@ -128,10 +128,10 @@ impl Dispatcher {
         board: Arc<Mutex<Board>>,
     ) -> Result<String, String> {
 
-        let worker: &str = node.worker.as_deref().unwrap_or("generic");
-        let task = &node.title;
-        let sentinel = "sentinel-code";
-        let instruction = &node.description.clone().unwrap_or_else(|| node.title.clone());
+        let worker      : &str      = node.worker.as_deref().unwrap_or("worker-code");
+        let task        : &String   = &node.title;
+        let sentinel    : &str      = "sentinel-code";
+        let instruction : &String   = &node.description.clone().unwrap_or_else(|| node.title.clone());
 
         self.execute(task, worker, sentinel, instruction, board).await
         

@@ -1,0 +1,31 @@
+root ::= output
+
+output ::= "{" ws "\"source_id\"" ws ":" ws string "," ws "\"observations\"" ws ":" ws observationarray "," ws "\"hypotheses\"" ws ":" ws hypothesisarray ws "}"
+
+observationarray ::= "[" ws "]" | "[" ws observationlist ws "]"
+
+observationlist ::= observation | observation ws "," ws observationlist
+
+observation ::= "{" ws "\"statement\"" ws ":" ws string "," ws "\"evidence_ids\"" ws ":" ws stringarray ws "}"
+
+hypothesisarray ::= "[" ws "]" | "[" ws hypothesislist ws "]"
+
+hypothesislist ::= hypothesis | hypothesis ws "," ws hypothesislist
+
+hypothesis ::= "{" ws "\"statement\"" ws ":" ws string "," ws "\"confidence\"" ws ":" ws integer "," ws "\"evidence_ids\"" ws ":" ws stringarray ws "}"
+
+stringarray ::= "[" ws "]" | "[" ws stringlist ws "]"
+
+stringlist ::= string | string ws "," ws stringlist
+
+integer ::= digit | digit integer
+
+digit ::= [0-9]
+
+string ::= "\"" chars "\""
+
+chars ::= "" | char chars
+
+char ::= [a-zA-Z0-9 .,;:!?_/\-()\[\]{}<>=+*#&%]
+
+ws ::= [ \t\n\r]*

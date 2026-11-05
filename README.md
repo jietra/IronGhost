@@ -318,66 +318,190 @@ How IronGhost compares to traditional agent frameworks:
 
 ### Building `ironghost-services` (C++)
 
-Install `llama.cpp` in project root (or change config in your service `CMakeLists.txt`):
+#### 1. Install llama.cpp
+
+Install `llama.cpp` in project root (or adapt `LLAMA_DIR` in
+`ironghost-services/llm-services/CMakeLists.txt`):
 
 ```bash
 git clone https://github.com/ggml-org/llama.cpp
 ```
 
-Create a `models` directory in which you will put your models (`.gguf` format):
+#### 2. Download models
+
+Create a `models` directory for your GGUF models:
 
 ```bash
 cd ironghost-services
 mkdir models
 ```
 
-Import your models in this directory.
+Place the models you want to use in this directory.
 
-Other sub-directories in `ironghost-services/` correspond to independant inference services (you can create as many services as you need - providing your machine can hold them).
-
-Inference services can host different cognitive roles, including higher-level Agents, specialized Workers and Sentinels. Roles may use different models, system prompts and GBNF grammars depending on their cognitive responsibility.
-
-Current examples include a Strategist as well as specialized Observer, Knowledge Worker and Sentinel services.
-
-For each service:
-
-- configure your `.env` file (in `ironghost-services/<your_service>/.env`) (examples provided, to be adapted according to your own setup) ;
-- in `src/config/` you may provide a custom system prompt (`.txt`) and a grammar (`.gbnf`).
-
-Build your service:
+#### 3. Build the LLM service binary
 
 ```bash
-cd ironghost-services/<your_service>
-mkdir build && cd build
-rm -rf * 
-cmake .. -DCMAKE_BUILD_TYPE=Release
-make -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
+cd ironghost-services/llm-services
+
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
 ```
 
-Launch your services:
+All cognitive LLM services share the same compiled binary.
+
+#### 4. Configure services
+
+Configure `ironghost-services/llm-services/services.yaml`. An example is provided (`services.yaml.example`).
+
+Each service configuration defines its runtime identity, including its model, Unix Domain Socket, system prompt, GBNF grammar, inference parameters and amnesia policy.
+
+System prompts and grammars are stored under `llm-services/config/`.
+
+#### 5. Launch services
+
+Services can be launched individually (e.g. during development or for monitoring):
 
 ```bash
-cd build/
-./<your_service_binary>
+./build/ironghost_llm_service \
+        services.yaml \
+        <service_name>
 ```
 
-> TODO: script this.
+For example:
+
+```bash
+./build/ironghost_llm_service \
+        services.yaml \
+        strategist
+```
+
+> TODO: future implementations will integrate service deployment, supervision and lifecycle automation.
 
 ### Running `ironghost-overwatch` (Rust)
 
-#### 1. launch *overwatch* backend:
+#### Ironghost configuration
+
+The `ironghost.yaml` file in the root directory contains IronGhost's global orchestration configuration.
+
+> Note: Configuration is currently split along runtime boundaries:
+> `ironghost.yaml` describes mission orchestration, stores, agents and execution infrastructure, while `services.yaml` describes independently deployed LLM inference services.
+> This separation may evolve as deployment automation is introduced.
+
+*Optional*: Use of Websearching tool may require an API key, which can be set in `ironghost-overwatch/src-backend/.env` (example provided in `ironghost-overwatch/src-backend/.env.example`).
+
+**Create your stores** for external sources and internal artifacts:
+
+```bash
+cd ironghost-overwatch
+mkdir data/artifacts/
+mkdir data/sources/
+```
+
+#### 1. launch *overwatch* backend
 
 ```bash
 cd ironghost-overwatch/src-backend
 cargo run -p backend --bin main 
 ```
 
-#### 2. launch *overwatch* app:
+#### 2. launch *overwatch* app
 
 ```bash
 cd ironghost-overwatch
 npm run tauri:dev 
 ```
+
+### Using IronGhost from the Tactical Board
+
+#### Launch a mission
+
+Place relevant mission resources in the source store (located at `data/sources/` by default).
+
+> Note: currently, IronGhost can only read plain text documents such as codebases. For example, you can git clone a repository in your source store, for IronGhost to analyse it.
+
+Launch a mission in the interface with the keyword `!Initiate_Mission` followed by your objective. For example:
+
+```text
+!Initiate_Mission find potential vulnerabilities in the given repository
+```
+
+This will trigger a mission assessment phase (recursive assessment) based on provided documents, followed by an operational phase (DAG execution).
+
+IronGhost can therefore use two complementary investigation modes:
+
+1. **Recursive assessment** — the Strategist selects one high-value information need, delegates observation, updates mission understanding and iterates.
+
+2. **Graph delegation** — once assessment is sufficient, or when remaining sequential assessment has lower expected value, the Strategist emits a Mission Graph whose tasks can be executed through the operational pipeline.
+
+> Note: The assessment budget defines the maximum number of Strategist iterations, not a number of iterations that must be consumed.
+>
+> The Strategist may terminate assessment early when further sequential investigation has lower expected value than delegation. With a small budget, it may therefore emit a Mission Graph containing investigation tasks rather than consume the remaining budget through recursive observation.
+
+#### Direct messages
+
+You can also summon a cognitive agent directly by tagging it with `!@`. For example:
+
+```text
+!@strategist propose a mission graph for a vulnerabily test
+```
+
+The tagged cognitive Agent receives the Board context currently available to its communication buffer and can answer outside the structured mission assessment workflow.
+
+#### Direct Mission Graph injection (development/debug)
+
+For development and Runner testing, a Mission Graph can currently be injected directly through the Board using the legacy `<mission_state>` envelope:
+
+```text
+<mission_state>
+{
+  "nodes": [
+    {
+      "id": "goal_01",
+      "kind": "goal",
+      "title": "Assess the target repository"
+    },
+    {
+      "id": "sub_review",
+      "kind": "subgoal",
+      "title": "Review security-relevant components"
+    },
+    {
+      "id": "task_inspect",
+      "kind": "task",
+      "title": "Inspect input-processing boundaries",
+      "description": "Review the relevant source components and report evidence-grounded findings.",
+      "worker": "code_inspector"
+    },
+    {
+      "id": "task_validate",
+      "kind": "task",
+      "title": "Validate supported findings",
+      "description": "Create controlled tests for findings that have sufficient supporting evidence.",
+      "worker": "coder"
+    }
+  ],
+  "edges": [
+    {
+      "from": "task_inspect",
+      "to": "sub_review",
+      "relation": "investigates"
+    },
+    {
+      "from": "task_validate",
+      "to": "sub_review",
+      "relation": "verifies"
+    },
+    {
+      "from": "sub_review",
+      "to": "goal_01",
+      "relation": "enables"
+    }
+  ]
+}
+</mission_state>
+```
+
+This bypasses the normal Strategist assessment path and is intended primarily for development and pipeline testing.
 
 ## 🗺️ Roadmap
 

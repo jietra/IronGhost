@@ -1,0 +1,75 @@
+defaults:
+  runtime:
+    context_size: 32768
+    threads: 8
+    gpu_layers: 99
+
+  sampling:
+    temperature: 0.2
+    top_p: 0.95
+    top_k: 40
+    min_p: 0.05
+    penalty_last_n: 64
+    penalty_repeat: 1.1
+    penalty_freq: 0.0
+    penalty_present: 0.0
+
+  behavior:
+    amnesia: true
+    enable_debug: false
+    print_prompt: false
+
+services:
+  strategist:
+    model: ../models/<your_model_for_this_service.gguf>
+    socket: /tmp/agent_strategist.sock
+    system_prompt: config/prompts/agent_strategist.txt
+    grammar: config/grammars/agent_strategist.gbnf
+  
+    behavior:
+      amnesia: true
+
+  worker-observation:
+    model: ../models/<your_model_for_this_service.gguf>
+    socket: /tmp/worker_observation.sock
+    system_prompt: config/prompts/worker_observation.txt
+    grammar: config/grammars/worker_observation.gbnf
+
+  worker-knowledge:
+    model: ../models/<your_model_for_this_service.gguf>
+    socket: /tmp/worker_knowledge.sock
+    system_prompt: config/prompts/worker_knowledge.txt
+    grammar: config/grammars/worker_knowledge.gbnf
+  
+  worker-code:
+    model: ../models/<your_model_for_this_service.gguf>
+    socket: /tmp/worker_code.sock
+    system_prompt: config/prompts/worker_code.txt
+    grammar: config/grammars/worker_code.gbnf
+
+  sentinel-observation:
+    model: ../models/<your_model_for_this_service.gguf>
+    socket: /tmp/sentinel_observation.sock
+    system_prompt: config/prompts/sentinel_observation.txt
+    grammar: config/grammars/sentinel_observation.gbnf
+
+    sampling:
+      temperature: 0.1
+
+  sentinel-knowledge:
+    model: ../models/<your_model_for_this_service.gguf>
+    socket: /tmp/sentinel_knowledge.sock
+    system_prompt: config/prompts/sentinel_knowledge.txt
+    grammar: config/grammars/sentinel_knowledge.gbnf
+
+    sampling:
+      temperature: 0.1
+
+  sentinel-code:
+    model: ../models/<your_model_for_this_service.gguf>
+    socket: /tmp/sentinel_code.sock
+    system_prompt: config/prompts/sentinel_code.txt
+    grammar: config/grammars/sentinel_code.gbnf
+
+    sampling:
+      temperature: 0.1

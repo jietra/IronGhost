@@ -1,0 +1,23 @@
+root ::= ws knowledge-card ws
+
+knowledge-card ::= "{" ws "\"id\"" ws ":" ws string "," ws "\"title\"" ws ":" ws string "," ws "\"status\"" ws ":" ws card-status "," ws "\"summary\"" ws ":" ws string "," ws "\"claims\"" ws ":" ws claims-array "}"
+
+card-status ::= "\"New\"" | "\"Investigating\"" | "\"Resolved\""
+
+claims-array ::= "[" ws (knowledge-claim ("," ws knowledge-claim)*)? "]"
+
+knowledge-claim ::= "{" ws "\"statement\"" ws ":" ws string "," ws "\"status\"" ws ":" ws claim-status "," ws "\"evidence_ids\"" ws ":" ws string-array "}"
+
+claim-status ::= "\"Hypothesis\"" | "\"Supported\"" | "\"Confirmed\"" | "\"Weakened\"" | "\"Refuted\"" | "\"Undetermined\""
+
+string-array ::= "[" ws (string ("," ws string)*)? "]"
+
+string ::= "\"" char* "\""
+
+char ::= [^"\\\x00-\x1F] | "\\" escape
+
+escape ::= ["\\/bfnrt] | "u" hex hex hex hex
+
+hex ::= [0-9a-fA-F]
+
+ws ::= [ \t\n\r]*
