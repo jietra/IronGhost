@@ -20,6 +20,8 @@ struct SamplingParams {
     float   penalty_freq    = 0.0f;
     float   penalty_present = 0.0f;
 
+    int32_t max_tokens      = 2048;
+
     std::string grammar_str = "";
 };
 

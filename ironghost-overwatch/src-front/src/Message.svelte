@@ -41,11 +41,37 @@
     mission_graph    : MissionGraphData | null;
   }
 
+  interface SentinelVerdict {
+    compliant           : boolean;
+    score               : number;
+    missing_requirements: string[];
+  }
+
+  interface GeneratedResponse {
+    environment: string;
+    runtime    : string;
+    source     : string;
+  }
+
+  interface ProbeOutput {
+    trial             : string;
+    max_retries       : string;
+    task              : string;
+    sentinel_verdict  : SentinelVerdict;
+    generated_response: GeneratedResponse;
+  }
+
   interface ParsedMessage {
     think     : string | null;
     final     : string;
     json      : unknown | null;
     strategist: StrategistOutput | null;
+    probe     : ProbeOutput | null;
+
+    /*
+    * legacy graph display
+    */
+    graph_legacy: unknown | null;
   }
 
   // 2. Retrieve (Props)
@@ -108,6 +134,31 @@
     );
   }
 
+  function isProbeOutput(value: unknown): value is ProbeOutput {
+    if (!isRecord(value)) return false;
+
+    const verdict = value.sentinel_verdict;
+    const response = value.generated_response;
+
+    if (!isRecord(verdict) || !isRecord(response)) {
+      return false;
+    }
+
+    return (
+      typeof value.trial === "string" &&
+      typeof value.max_retries === "string" &&
+      typeof value.task === "string" &&
+
+      typeof verdict.compliant === "boolean" &&
+      typeof verdict.score === "number" &&
+      Array.isArray(verdict.missing_requirements) &&
+
+      typeof response.environment === "string" &&
+      typeof response.runtime === "string" &&
+      typeof response.source === "string"
+    );
+  }
+
   function tryParseJson(raw: string): unknown | null {
     const trimmed = raw.trim();
 
@@ -150,6 +201,18 @@
     * Temporary backwards compatibility.
     * Remove this after all backends have migrated.
     */
+
+    const graphMatch = raw.match(
+      /<mission_state>([\s\S]*?)(?:<\/mission_state>|$)/i
+    );
+
+    const graph_legacy_str =
+      graphMatch
+        ? graphMatch[1].trim()
+        : null;
+    
+    const graph_legacy = graph_legacy_str? tryParseJson(graph_legacy_str) : null;
+
     final = final
       .replace(
         /<mission_state>[\s\S]*?(?:<\/mission_state>|$)/gi,
@@ -164,11 +227,22 @@
         ? json
         : null;
 
+    const probe =
+      isProbeOutput(json)
+        ? json
+        : null;
+      
     return {
       think,
       final,
       json,
-      strategist
+      strategist,
+      probe,
+
+      /*
+      * legacy graph display
+      */
+      graph_legacy
     };
   }
 
@@ -434,6 +508,152 @@
     overflow-wrap : anywhere;
   }
 
+  .probe-output {
+    display       : flex;
+    flex-direction: column;
+    gap           : 10px;
+  }
+
+  .probe-header {
+    color       : #67e8f9;
+    border-color: rgba(0, 240, 255, 0.25);
+    background  : rgba(0, 240, 255, 0.06);
+  }
+
+  .probe-trial {
+    margin-left : auto;
+    color       : #64748b;
+    font-size   : 0.62rem;
+    font-weight : 600;
+    white-space : nowrap;
+  }
+
+  .probe-task {
+    display       : flex;
+    flex-direction: column;
+    gap           : 4px;
+    padding       : 9px 10px;
+    background    : rgba(255, 255, 255, 0.025);
+    border        : 1px solid rgba(255, 255, 255, 0.06);
+    border-radius : 6px;
+    color         : #cbd5e1;
+    font-size     : 0.75rem;
+  }
+
+  /* Sentinel verdict */
+
+  .verdict-card {
+    display        : flex;
+    align-items    : center;
+    justify-content: space-between;
+    gap            : 12px;
+    padding        : 9px 11px;
+    border-radius  : 6px;
+  }
+
+  .verdict-ok {
+    background : rgba(16, 185, 129, 0.07);
+    border     : 1px solid rgba(16, 185, 129, 0.25);
+    border-left: 3px solid #10b981;
+  }
+
+  .verdict-fail {
+    background : rgba(239, 68, 68, 0.07);
+    border     : 1px solid rgba(239, 68, 68, 0.25);
+    border-left: 3px solid #ef4444;
+  }
+
+  .verdict-status {
+    display       : flex;
+    align-items   : center;
+    gap           : 7px;
+    color         : #6ee7b7;
+    font-size     : 0.7rem;
+    font-weight   : 700;
+    letter-spacing: 0.7px;
+  }
+
+  .verdict-fail .verdict-status {
+    color: #f87171;
+  }
+
+  .verdict-score {
+    display    : flex;
+    align-items: center;
+    gap        : 7px;
+  }
+
+  .verdict-score strong {
+    color      : #e2e8f0;
+    font-family: monospace;
+    font-size  : 0.75rem;
+  }
+
+  /* Requirements */
+
+  .missing-requirements {
+    padding      : 8px 10px;
+    color        : #fbbf24;
+    background   : rgba(245, 158, 11, 0.05);
+    border       : 1px solid rgba(245, 158, 11, 0.16);
+    border-radius: 6px;
+  }
+
+  .missing-requirements ul {
+    margin     : 5px 0 0 0;
+    padding-left: 18px;
+  }
+
+  /* Generated response */
+
+  .generated-response {
+    overflow     : hidden;
+    border       : 1px solid rgba(59, 130, 246, 0.18);
+    border-radius: 6px;
+    background   : rgba(2, 6, 23, 0.55);
+  }
+
+  .generated-header {
+    display        : flex;
+    align-items    : center;
+    justify-content: space-between;
+    gap            : 8px;
+    padding        : 6px 10px;
+    color          : #93c5fd;
+    background     : rgba(59, 130, 246, 0.07);
+    border-bottom  : 1px solid rgba(59, 130, 246, 0.12);
+    font-size      : 0.68rem;
+    font-weight    : 700;
+    letter-spacing : 0.7px;
+  }
+
+  .runtime-badges {
+    display: flex;
+    gap    : 5px;
+  }
+
+  .runtime-badge {
+    padding      : 2px 6px;
+    color        : #67e8f9;
+    background   : rgba(0, 240, 255, 0.07);
+    border       : 1px solid rgba(0, 240, 255, 0.18);
+    border-radius: 4px;
+    font-size    : 0.6rem;
+    font-family  : monospace;
+  }
+
+  .source-code {
+    margin     : 0;
+    padding    : 10px 12px;
+    max-height : 320px;
+    overflow   : auto;
+    color      : #bae6fd;
+    background : rgba(0, 0, 0, 0.32);
+    font-size  : 0.7rem;
+    line-height: 1.55;
+    white-space: pre;
+  }
+
   /* Thinking block <think> */
   .think-box {
     margin-bottom   : 8px;
@@ -679,6 +899,89 @@
           {/if}
         </section>
 
+      {:else if parsed.probe}
+        <section class="probe-output">
+
+          <!--
+          <div class="artifact-header probe-header">
+            <span class="artifact-icon">◈</span>
+            <span>EXECUTION PROBE</span>
+
+            <span class="probe-trial">
+              TRY {parsed.probe.trial}/{parsed.probe.max_retries}
+            </span>
+          </div>
+
+          <div class="probe-task">
+            <span class="field-label">TASK</span>
+            <span>{parsed.probe.task}</span>
+          </div>
+          -->
+
+          <div
+            class="verdict-card"
+            class:verdict-ok={parsed.probe.sentinel_verdict.compliant}
+            class:verdict-fail={!parsed.probe.sentinel_verdict.compliant}
+          >
+            <div class="verdict-status">
+              <span class="probe-trial">
+                TRY {parsed.probe.trial}/{parsed.probe.max_retries}
+              </span>
+              <span>
+                {parsed.probe.sentinel_verdict.compliant ? "✓" : "✕"}
+              </span>
+
+              <span>
+                {parsed.probe.sentinel_verdict.compliant
+                  ? "COMPLIANT"
+                  : "REJECTED"}
+              </span>
+            </div>
+
+            <div class="verdict-score">
+              <span class="field-label">SCORE</span>
+              <strong>
+                {parsed.probe.sentinel_verdict.score}/10
+              </strong>
+            </div>
+          </div>
+
+          {#if parsed.probe.sentinel_verdict.missing_requirements.length > 0}
+            <div class="missing-requirements">
+              <span class="field-label">
+                MISSING REQUIREMENTS
+              </span>
+
+              <ul>
+                {#each parsed.probe.sentinel_verdict.missing_requirements as requirement}
+                  <li>{requirement}</li>
+                {/each}
+              </ul>
+            </div>
+          {/if}
+
+          <div class="generated-response">
+
+            <div class="generated-header">
+              <span>GENERATED RESPONSE</span>
+
+              <div class="runtime-badges">
+                <span class="runtime-badge">
+                  {parsed.probe.generated_response.environment}
+                </span>
+
+                <span class="runtime-badge">
+                  {parsed.probe.generated_response.runtime}
+                </span>
+              </div>
+            </div>
+
+            <pre class="source-code"><code>{parsed.probe.generated_response.source}</code></pre>
+
+          </div>
+
+        </section>
+
       {:else if parsed.json}
         <details class="json-box">
           <summary class="json-summary">
@@ -695,13 +998,15 @@
         {@html marked.parse(parsed.final)}
       {/if}
 
-      {#if parsed.strategist?.mission_graph}
+      {#if parsed.graph_legacy}
         <details class="mission-box" open={isStreaming}>
           <summary class="mission-summary">
             🗺️ // MISSION GRAPH PAYLOAD
           </summary>
           <div class="mission-body">
-            <pre><code>{parsed.strategist.mission_graph}</code></pre>
+            <pre><code>{prettyJson(
+              parsed.graph_legacy
+            )}</code></pre>
           </div>
         </details>
       {/if}

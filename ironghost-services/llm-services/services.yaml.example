@@ -13,6 +13,7 @@ defaults:
     penalty_repeat: 1.1
     penalty_freq: 0.0
     penalty_present: 0.0
+    max_tokens: 4096
 
   behavior:
     amnesia: true

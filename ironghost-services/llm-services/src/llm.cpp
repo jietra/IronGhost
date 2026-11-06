@@ -149,6 +149,10 @@ std::string LLM::generate(const std::string& user_prompt) {
 }
 
 std::string LLM::run_llm(const std::string& full_prompt) {
+
+    // replace grammar at root (when !amnesia)
+    llama_sampler_reset(sampler);
+
     // Tokenize prompt, batch, loop with decode
 
     // KV cache init test: test if first prompt
@@ -190,7 +194,9 @@ std::string LLM::run_llm(const std::string& full_prompt) {
     std::string utf8_buffer;
 
     // --- Entering loop ---
-    while (true) {
+    int32_t generated_tokens = 0;
+
+    while (generated_tokens < sampling_params.max_tokens) {
         // check available context space
         if (kv_len_token + batch.n_tokens > n_ctx) {
             std::cerr << "WARNING: context size exceeded. Consider cropping messages." << std::endl;
@@ -199,10 +205,12 @@ std::string LLM::run_llm(const std::string& full_prompt) {
         // TODO: create a method to crop messages: crop_messages(n_messages), or automatic cropping, or auto summurize.
 
         // --- Eval prompt ---
-        int32_t ret = llama_decode(ctx, batch);
+        const int32_t ret = llama_decode(ctx, batch);
         if (ret != 0) {
-            std::cerr << "ERROR: llama_decode failed with ret = " << ret << std::endl;
-            std::exit(1);
+                throw std::runtime_error(
+                "ERROR: llama_decode failed with ret = "
+                + std::to_string(ret)
+            );
         }
 
         // update kv_len_token according to new KV-cache state
@@ -213,9 +221,18 @@ std::string LLM::run_llm(const std::string& full_prompt) {
 
         // --- EOG? ---
         if (llama_vocab_is_eog(vocab, new_token_id)) {
-            std::cout << std::endl;
             break;
         }
+
+        /*
+        // Advance grammar state and sampler history.   // Issue with "{": breaks gbnf for JSON outputs
+        llama_sampler_accept(
+            sampler,
+            new_token_id
+        );
+        */
+
+        ++generated_tokens;
 
         // --- Convert token to string ---
         char buf[256];
@@ -228,10 +245,14 @@ std::string LLM::run_llm(const std::string& full_prompt) {
             true
         );
         if (n < 0) {
-            std::cerr << "ERROR: failed to convert token to piece" << std::endl;
-            std::exit(1);
+            throw std::runtime_error(
+                "ERROR: failed to convert token to piece"
+            );
         }
-        std::string piece(buf, n);
+        const std::string piece(
+            buf,
+            static_cast<size_t>(n)
+        );
 
         // stream to console (server side) (for debug)
         std::cout << piece << std::flush;
@@ -245,6 +266,13 @@ std::string LLM::run_llm(const std::string& full_prompt) {
 
         // prepare next batch with sampled token
         batch = llama_batch_get_one(&new_token_id, 1);
+    }
+
+    if (generated_tokens >= sampling_params.max_tokens) {
+        std::cerr
+            << "[LLM] Maximum generated-token limit reached: "
+            << sampling_params.max_tokens
+            << '\n';
     }
 
     return output;

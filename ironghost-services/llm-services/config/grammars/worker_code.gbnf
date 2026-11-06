@@ -1,2 +1,15 @@
-root ::= ( "```" [a-zA-Z0-9_-]* "\n" code-body "```" )
-code-body ::= [^`]+
+root ::= ws "{" ws "\"environment\"" ws ":" ws environment ws "," ws "\"runtime\"" ws ":" ws runtime ws "," ws "\"source\"" ws ":" ws json-string ws "}" ws
+
+environment ::= "\"kali\""
+
+runtime ::= "\"python\""
+
+json-string ::= "\"" json-char* "\""
+
+json-char ::= [^"\\\x00-\x1F] | escape
+
+escape ::= "\\" (["\\/bfnrt] | "u" hex hex hex hex)
+
+hex ::= [0-9a-fA-F]
+
+ws ::= [ \t\n\r]*

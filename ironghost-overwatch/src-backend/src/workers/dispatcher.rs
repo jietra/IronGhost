@@ -40,10 +40,11 @@ impl SentinelVerdict {
                 .collect::<Vec<_>>()
                 .join("\n");
         
-        format!(
-            "Compliance: {}\n\
-            (Score: {}/10)\n\n\
-            Missing requirements:\n{}",
+        format!(r#"
+Compliance: {} (Score: {}/10)
+Missing requirements:
+[{}]
+"#,
             self.compliant,
             self.score,
             requirements,
@@ -215,16 +216,16 @@ impl Dispatcher {
             // Notify final output to Board
             let mut b: MutexGuard<'_, Board> = board.lock().await;
             b.publish(BoardMessage {
-                agent    : "Runner".into(),
+                agent    : task.into(),
                 content  : format!(
-                    "Trial {}/{} for task [{}] completed with Sentinel verdict:
-                    \n\n{}
-                    \n\nGenerated response:\n{}",
-                    task_context.trial,
-                    MAX_RETRIES,
-                    task,
-                    sentinel_verdict.to_feedback(),
-                    worker_full_output,
+                    "{{
+                    \"trial\": \"{}\",
+                    \"max_retries\": \"{MAX_RETRIES}\",
+                    \"task\": \"{task}\",
+                    \"sentinel_verdict\": {sentinel_full_output},
+                    \"generated_response\": {worker_full_output}
+                    }}",
+                    task_context.trial
                 ),
                 timestamp: Utc::now().timestamp_millis() as u64,
             }).await;
