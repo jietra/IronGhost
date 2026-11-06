@@ -8,6 +8,60 @@
 #include <csignal>
 #include <cstring>
 #include <iostream>
+#include <cerrno>
+#include <cstdint>
+#include <sys/socket.h>
+
+namespace {
+
+    bool write_all(
+        int         fd,
+        const void* data,
+        size_t      size
+    ) {
+        const auto* bytes = static_cast<const std::uint8_t*>(data);
+
+        size_t written = 0;
+
+        while (written < size) {
+            const ssize_t n = send(
+                fd,
+                bytes + written,
+                size - written,
+                MSG_NOSIGNAL
+            );
+
+            if (n > 0) {
+                written += static_cast<size_t>(n);
+                continue;
+            }
+
+            if (n < 0 && errno == EINTR) {
+                continue;
+            }
+
+            return false;
+        }
+
+        return true;
+    }
+
+    bool send_frame(
+        int                fd,
+        const std::string& piece
+    ) {
+        if (piece.size() > UINT32_MAX) {
+            return false;
+        }
+
+        const uint32_t len = static_cast<uint32_t>(piece.size());
+
+        return
+            write_all(fd, &len, sizeof(len)) &&
+            write_all(fd, piece.data(), piece.size());
+    }
+
+} // namespace
 
 UDSServer* UDSServer::instance = nullptr;
 
@@ -146,12 +200,16 @@ void UDSServer::run() {
 
             // 2. Set callback for this specific client
             llm.set_stream_callback(
-                [client_fd](const std::string& piece) {
+                [this, client_fd](const std::string& piece) {
 
                     // stream to client
-                    uint32_t len = piece.size();
-                    write(client_fd, &len, sizeof(len));
-                    write(client_fd, piece.c_str(), len);
+                    if (!send_frame(client_fd, piece)) {
+                        std::cerr
+                            << "[UDS] Client disconnected; "
+                            << "cancelling generation\n";
+
+                        llm.request_cancel();
+                    }
                 }
             );
 
