@@ -150,6 +150,9 @@ std::string LLM::generate(const std::string& user_prompt) {
 
 std::string LLM::run_llm(const std::string& full_prompt) {
 
+    // interruption management
+    clear_cancel();
+
     // replace grammar at root (when !amnesia)
     llama_sampler_reset(sampler);
 
@@ -197,6 +200,12 @@ std::string LLM::run_llm(const std::string& full_prompt) {
     int32_t generated_tokens = 0;
 
     while (generated_tokens < sampling_params.max_tokens) {
+
+        if (cancel_requested.load(std::memory_order_relaxed)) {
+            std::cerr << "[LLM] Generation cancelled\n";
+            break;
+        }
+        
         // check available context space
         if (kv_len_token + batch.n_tokens > n_ctx) {
             std::cerr << "WARNING: context size exceeded. Consider cropping messages." << std::endl;

@@ -40,10 +40,15 @@ void UDSServer::signal_handler(int) {
 }
 
 void UDSServer::stop() {
+    llm.request_cancel();
+
     if (running.exchange(false)) {
         char byte = 1;
+        
         // writing 1 byte immediately wakes up select() in run()
-        write(shutdown_pipe[1], &byte, 1);
+        const ssize_t ignored = write(shutdown_pipe[1], &byte, 1);
+
+        (void)ignored;
     }
 }
 

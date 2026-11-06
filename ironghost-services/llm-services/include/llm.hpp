@@ -5,6 +5,7 @@
 #include <llama.h>
 #include <vector>
 #include <deque>
+#include <atomic>
 
 /// @brief Struct for model sampling parameters
 /// Parameters are set with default values, so that providing user values is optional.
@@ -83,6 +84,20 @@ public:
     /// @brief Reset context.
     void reset_context();
 
+    void request_cancel() noexcept {
+        cancel_requested.store(
+            true,
+            std::memory_order_relaxed
+        );
+    }
+
+    void clear_cancel() noexcept {
+        cancel_requested.store(
+            false,
+            std::memory_order_relaxed
+        );
+    }
+
 private:
     std::string         system_prompt;
     int32_t             n_threads;          // context parameter n_threads
@@ -122,5 +137,7 @@ private:
     /// @brief Add llm response to conversation history
     /// @param response
     void add_response(const std::string& response);
+
+    std::atomic<bool> cancel_requested{false};
 
 };
