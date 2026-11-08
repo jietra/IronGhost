@@ -38,6 +38,10 @@ enum class GenerationStopReason {
     Unknown
 };
 
+const char* stop_reason_to_string(GenerationStopReason reason);
+
+bool is_generation_error(GenerationStopReason reason);
+
 struct GenerationResult {
     std::string          output;
     GenerationStopReason reason;

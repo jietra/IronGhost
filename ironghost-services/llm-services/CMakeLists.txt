@@ -47,6 +47,7 @@ add_executable(
     src/llm_handler.cpp
     src/uds_server.cpp
     src/utils.cpp
+    src/uds_protocol.cpp
 )
 
 target_include_directories(

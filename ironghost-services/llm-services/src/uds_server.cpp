@@ -1,4 +1,5 @@
 #include "uds_server.hpp"
+#include "uds_protocol.hpp"
 
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -9,59 +10,6 @@
 #include <cstring>
 #include <iostream>
 #include <cerrno>
-#include <cstdint>
-#include <sys/socket.h>
-
-namespace {
-
-    bool write_all(
-        int         fd,
-        const void* data,
-        size_t      size
-    ) {
-        const auto* bytes = static_cast<const std::uint8_t*>(data);
-
-        size_t written = 0;
-
-        while (written < size) {
-            const ssize_t n = send(
-                fd,
-                bytes + written,
-                size - written,
-                MSG_NOSIGNAL
-            );
-
-            if (n > 0) {
-                written += static_cast<size_t>(n);
-                continue;
-            }
-
-            if (n < 0 && errno == EINTR) {
-                continue;
-            }
-
-            return false;
-        }
-
-        return true;
-    }
-
-    bool send_frame(
-        int                fd,
-        const std::string& piece
-    ) {
-        if (piece.size() > UINT32_MAX) {
-            return false;
-        }
-
-        const uint32_t len = static_cast<uint32_t>(piece.size());
-
-        return
-            write_all(fd, &len, sizeof(len)) &&
-            write_all(fd, piece.data(), piece.size());
-    }
-
-} // namespace
 
 UDSServer* UDSServer::instance = nullptr;
 
@@ -137,28 +85,6 @@ int UDSServer::create_socket() {
     return fd;
 }
 
-std::string UDSServer::read_request(int client_fd) {
-    uint32_t len = 0;
-    
-    // blocking and exact read of the length of the incoming request
-    ssize_t bytes_read = read(client_fd, &len, sizeof(len));
-    if (bytes_read != sizeof(len)) {
-        return "";  // The client has closed the socket or disconnected properly
-    }
-
-    std::string buffer(len, '\0');
-    size_t total_read = 0;
-
-    // loop to ensure we read the entire request
-    while (total_read < len) {
-        ssize_t n = read(client_fd, &buffer[total_read], len - total_read);
-        if (n <= 0) return "";  // Error or disconnection
-        total_read += n;
-    }
-
-    return buffer;
-}
-
 void UDSServer::run() {
     // catch interrupts
     std::signal(SIGINT,  UDSServer::signal_handler);
@@ -194,16 +120,26 @@ void UDSServer::run() {
         // if the activity comes from the server_fd, we accept a client
         if (FD_ISSET(server_fd, &readfds)) {
 
-            // 1. Accept a client (Non-blocking accept)
-            int client_fd = accept(server_fd, nullptr, nullptr);
+            // 1. Accept ready client connection
+            const int client_fd = accept(server_fd, nullptr, nullptr);
+            
             if (client_fd < 0) continue;
+
+            std::cout
+                << "[UDS] accepted client fd="
+                << client_fd
+                << '\n';
 
             // 2. Set callback for this specific client
             llm.set_stream_callback(
                 [this, client_fd](const std::string& piece) {
 
                     // stream to client
-                    if (!send_frame(client_fd, piece)) {
+                    if (!send_frame(
+                        client_fd,
+                        FrameType::Content,
+                        piece
+                    )) {
                         std::cerr
                             << "[UDS] Client disconnected; "
                             << "cancelling generation\n";
@@ -213,35 +149,79 @@ void UDSServer::run() {
                 }
             );
 
-            // blocking dialogue loop, isolation of each client (no multi-threading)
-            while (running) {
+            // 3. Read request
+            Frame frame;
 
-                // 3. Read request
-                std::string request = read_request(client_fd);
-
-                if (request.empty()) {
-                    break;  // client closed socket
-                }
-
-                // 4. Handle request
-                handler(request);
+            if (!read_frame(client_fd, frame)) {
+                llm.set_stream_callback(nullptr);
+                close(client_fd);
+                continue;
             }
 
+            if (frame.type != FrameType::Request) {
+                send_frame(
+                    client_fd,
+                    FrameType::Error,
+                    R"({"code":"invalid_frame","message":"expected REQUEST"})"
+                );
+                llm.set_stream_callback(nullptr);
+                close(client_fd);
+                continue;
+            }
+
+            // 4. Handle request
+            const GenerationResult result = handler(frame.payload);
+
+            const FrameType terminal_type =
+                is_generation_error(result.reason)
+                    ? FrameType::Error
+                    : FrameType::End;
+
+            const std::string terminal_payload =
+                std::string(R"({"reason":")")
+                + stop_reason_to_string(result.reason)
+                + R"("})";
+
+            if (!send_frame(
+                client_fd,
+                terminal_type,
+                terminal_payload
+            )) {
+                std::cerr
+                    << "[UDS] failed to send END frame\n";
+            }
+
+            std::cout
+                << "[UDS] generation end fd="
+                << client_fd
+                << '\n';
+
+            llm.set_stream_callback(nullptr);
+
             close(client_fd);
+
+            std::cout
+                << "[UDS] closed client fd="
+                << client_fd
+                << '\n';
+
         }
     }
 
     std::cout << "\n[UDS] Cleaning up resources..." << std::endl;
     
     // RAII destructors will handle closing file descriptors and unlinking the socket path
-    
-    //close(server_fd);
-    //unlink(socket_path.c_str());
 }
 
 // Send response to the client. Only used for non-streaming responses.
 void UDSServer::send_response(int client_fd, const std::string& response) {
-    uint32_t len = response.size();
-    write(client_fd, &len, sizeof(len));
-    write(client_fd, response.data(), len);
+
+    if (!send_frame(
+        client_fd,
+        FrameType::Content,
+        response
+    )) {
+        std::cerr
+            << "[UDS] failed to send response\n";
+    }
 }

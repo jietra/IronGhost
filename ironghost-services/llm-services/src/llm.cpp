@@ -471,3 +471,59 @@ std::string LLM::token_to_piece(
         static_cast<size_t>(n)
     );
 }
+
+const char* stop_reason_to_string(
+    GenerationStopReason reason
+) {
+    switch (reason) {
+        case GenerationStopReason::EndOfGeneration:
+            return "eog";
+
+        case GenerationStopReason::MaxTokens:
+            return "max_tokens";
+
+        case GenerationStopReason::Cancelled:
+            return "cancelled";
+
+        case GenerationStopReason::ContextFull:
+            return "context_full";
+
+        case GenerationStopReason::TokenizerError:
+            return "tokenizer_error";
+
+        case GenerationStopReason::DecodeError:
+            return "decode_error";
+
+        case GenerationStopReason::TokenToPieceError:
+            return "token_to_piece_error";
+
+        case GenerationStopReason::Unknown:
+            return "unknown";
+
+        case GenerationStopReason::Init:
+            return "invalid_internal_state";
+    }
+
+    return "unknown";
+}
+
+bool is_generation_error(
+    GenerationStopReason reason
+) {
+    switch (reason) {
+        case GenerationStopReason::TokenizerError:
+        case GenerationStopReason::DecodeError:
+        case GenerationStopReason::TokenToPieceError:
+        case GenerationStopReason::Init:
+        case GenerationStopReason::Unknown:
+            return true;
+
+        case GenerationStopReason::EndOfGeneration:
+        case GenerationStopReason::MaxTokens:
+        case GenerationStopReason::Cancelled:
+        case GenerationStopReason::ContextFull:
+            return false;
+    }
+
+    return true;
+}
