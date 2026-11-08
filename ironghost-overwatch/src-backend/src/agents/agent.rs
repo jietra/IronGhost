@@ -37,6 +37,7 @@ use crate::llm::{
 };
 use crate::stores::source_store::FolderTree;
 use crate::workers::dispatcher::Dispatcher;
+use crate::config::SystemRegistry;
 
 pub struct Agent {
     pub name  : String,                             // agent's id
@@ -192,7 +193,7 @@ impl Agent {
                     agent    : self.name.clone(),
                     content  : full_response,
                     timestamp: Utc::now().timestamp_millis() as u64,
-                }).await;
+                });
             }
         
         Ok(())
@@ -229,13 +230,13 @@ impl Agent {
 
     async fn refresh_source_tree( &mut self ) -> Result<()> {
 
-        let source_tree: FolderTree = {
-            let board: MutexGuard<'_, Board> = self.board.lock().await;
-
-            board
-                .registry.observer_registry()
-                .folder_explorer.execute()?
+        let registry: Arc<SystemRegistry> = {
+            let board = self.board.lock().await;
+            Arc::clone(&board.registry)
         };
+        
+        let source_tree: FolderTree = registry.observer_registry()
+            .folder_explorer.execute()?;
 
         let source_tree_list: String = source_tree.to_path_listing();
 
@@ -426,7 +427,7 @@ impl Agent {
                 agent    : self.name.clone(),
                 content  : response,
                 timestamp: Utc::now().timestamp_millis() as u64,
-            }).await;
+            });
         }
         
         Ok(artifact)
@@ -484,13 +485,14 @@ impl Agent {
         println!("FileReader on path {}", path);
 
         // execute FileReader tool
-        let file_content: String = {
-            let board_guard: MutexGuard<'_, Board> = self.board.lock().await;
+        let registry: Arc<SystemRegistry> = {
+            let board: MutexGuard<'_, Board> = self.board.lock().await;
+            Arc::clone(&board.registry)
+        }; // unlock board
 
-            board_guard.registry
-                .observer_registry()
-                .file_reader.execute(path)?
-        };
+        let file_content: String = registry
+            .observer_registry()
+            .file_reader.execute(path)?;
 
         // prompt for worker
         let prompt: String = format!(
@@ -517,9 +519,7 @@ impl Agent {
         // send to FileReader worker
         let dispatcher: Dispatcher = {
             let board_guard: MutexGuard<'_, Board> = self.board.lock().await;
-
-            board_guard.registry
-                .dispatcher()
+            board_guard.registry.dispatcher()
         };
 
         let response: String = dispatcher.execute(
@@ -566,7 +566,7 @@ impl Agent {
         }
         
         {
-            let mut board_guard = self.board.lock().await;
+            let mut board_guard: MutexGuard<'_, Board> = self.board.lock().await;
 
             board_guard
                 .mission

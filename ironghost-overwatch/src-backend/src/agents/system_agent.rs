@@ -76,59 +76,39 @@ impl SystemAgent {
         }
     }
 
-    async fn create_mission(
-        &mut self,
-        prompt: &str,
-    ) {
+    async fn create_mission( &mut self, prompt: &str ) {
 
         let mission: Mission = Mission {
-            id        : format!(
-                "Mission-{}", Utc::now().timestamp_millis()
-            ),
+            id        : format!("Mission-{}", Utc::now().timestamp_millis()),
             prompt    : prompt.to_string(),
             graph     : MissionGraph::default(),
             knowledge : MissionKnowledge::default(),
             status    : MissionStatus::Draft,
         };
 
-        {
-            let mut board: MutexGuard<'_, Board> = self.board.lock().await;
+        let mut board: MutexGuard<'_, Board> = self.board.lock().await;
 
-            board.set_current_mission(
-                mission.clone()
-            );
-        }
+        board.set_current_mission(mission.clone());
+        
+        let _ = board.tx.send(
+            BoardEvent::MissionState(
+                mission.graph.clone()
+            )
+        );
 
-        let _ =
-            self.board
-                .lock()
-                .await
-                .tx
-                .send(
-                    BoardEvent::MissionState(
-                        mission.graph.clone()
-                    )
-                );
+        let _ = board.tx.send(
+            BoardEvent::DispatchCommand {
+                mission_id : mission.id.clone(),
+                to         : "strategist".into(),
+                payload    : "!Initiate_Mission".into(),
+            }
+        );
 
-        let _ =
-            self.board
-                .lock()
-                .await
-                .tx
-                .send(
-                    BoardEvent::DispatchCommand {
-                        mission_id : mission.id.clone(),
-                        to         : "strategist".into(),
-                        payload    : "!Initiate_Mission".into(),
-                    }
-                );
-
-        let mut board: MutexGuard<'_, Board> = self.board.lock().await; 
         board.publish(BoardMessage {
             agent    : "System".into(),
             content  : format!("New mission created with id: {}", mission.id.clone()),
             timestamp: Utc::now().timestamp_millis() as u64,
-        }).await;
+        });
     }
 
 }

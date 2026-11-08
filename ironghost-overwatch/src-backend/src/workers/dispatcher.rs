@@ -304,7 +304,7 @@ impl Dispatcher {
                 agent    : task.into(),
                 content  : published_content,
                 timestamp: Utc::now().timestamp_millis() as u64,
-            }).await;
+            });
 
             drop(board_guard);
 

@@ -126,7 +126,7 @@ impl MissionRunner {
                     agent    : "Runner".into(),
                     content  : "Mission completed successfully".into(),
                     timestamp: 0,
-                }).await;
+                });
                 
                 break;
             }

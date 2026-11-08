@@ -852,6 +852,7 @@
     background   : rgba(245, 158, 11, 0.05);
     /* border       : 1px solid rgba(245, 158, 11, 0.16); */
     border-radius: 6px;
+    font-size  : 0.7rem;
   }
 
   .missing-requirements ul {

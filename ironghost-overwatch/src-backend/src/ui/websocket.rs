@@ -1,7 +1,12 @@
 // src/ui/websocket.rs
 
 use std::sync::Arc;
-use tokio::sync::{Mutex, broadcast, MutexGuard};
+use tokio::sync::{
+    Mutex,
+    MutexGuard,
+    broadcast,
+    broadcast::error::RecvError,
+};
 use tokio::net::{
     TcpListener,
     TcpStream,
@@ -9,7 +14,7 @@ use tokio::net::{
 use tokio_tungstenite::{
     accept_async,
     WebSocketStream,
-    tungstenite::Message,
+    tungstenite::{Message, Error},
 };
 use futures_util::{
     StreamExt,
@@ -50,11 +55,49 @@ async fn handle_connection(
         let ws_tx: Arc<Mutex<SplitSink<WebSocketStream<TcpStream>, Message>>> = ws_tx.clone();
 
         tokio::spawn(async move {
-            let mut rx: broadcast::Receiver<BoardEvent> = board.lock().await.tx.subscribe();
+            let mut rx: broadcast::Receiver<BoardEvent> = {
+                let board_guard: MutexGuard<'_, Board> = board.lock().await;
+                board_guard.tx.subscribe()
+            };
         
             while let Ok(event) = rx.recv().await {
                 if let Ok(json) = serde_json::to_string(&event) {
                     let _ = ws_tx.lock().await.send(Message::Text(json)).await;
+                }
+            }
+
+            loop {
+                let event: BoardEvent = match rx.recv().await {
+                    Ok(event) => event,
+
+                    Err(RecvError::Lagged(skipped)) => {
+                        eprintln!("[WS-UI] WARNING: skipped {} board events", skipped);
+                        // allow usage of channel while skipped messages
+                        continue;
+                    }
+
+                    Err(RecvError::Closed) => {
+                        println!("[WS-UI] board broadcast channel closed");
+                        break;
+                    }
+                };
+
+                let json: String = match serde_json::to_string(&event) {
+                    Ok(json) => json,
+
+                    Err(error) => {
+                        eprintln!("[WS-UI] failed to serialize BoardEvent: {}", error);
+                        continue;
+                    }
+                };
+
+                let send_result: Result<(), Error> = ws_tx.lock().await.send(Message::Text(
+                    json
+                )).await;
+
+                if let Err(error) = send_result {
+                    eprintln!("[WS-UI] websocket send failed: {}", error);
+                    break;
                 }
             }
         });
@@ -70,28 +113,39 @@ async fn handle_connection(
             if json.get("type") == Some(&serde_json::Value::String("get_history".into())) {
 
                 println!("[WS-UI] retrieving board history");
-                
-                let board_guard: MutexGuard<'_, Board> = board.lock().await;
+
+                let (messages, mission_graph) = {
+                    let board_guard: MutexGuard<'_, Board> = board.lock().await;
+
+                    (
+                        board_guard.messages.clone(),
+                        board_guard.mission.graph.clone(),
+                    )
+                };
 
                 // send history to client
                 let payload: serde_json::Value = serde_json::json!({
                     "type"   : "history",
-                    "payload": board_guard.messages
+                    "payload": messages
                 });
                 
                 println!("[WS-UI] sending board history to UI");
                 
-                let _ = ws_tx.lock().await.send(Message::Text(payload.to_string())).await;
+                let _ = ws_tx.lock().await.send(Message::Text(
+                    payload.to_string()
+                )).await;
 
                 // send initial state of mission graph
                 let mission_payload: serde_json::Value = serde_json::json!({
                     "type"   : "mission_state",
-                    "payload": board_guard.mission.graph
+                    "payload": mission_graph
                 });
 
                 println!("[WS-UI] sending graph to UI");
 
-                let _ = ws_tx.lock().await.send(Message::Text(mission_payload.to_string())).await;
+                let _ = ws_tx.lock().await.send(Message::Text(
+                    mission_payload.to_string()
+                )).await;
 
                 continue;
             }
@@ -102,7 +156,10 @@ async fn handle_connection(
 
             println!("[WS-UI] publish message to board");
             
-            board.lock().await.publish(msg).await;
+            {
+                let mut board_guard: MutexGuard<'_, Board> = board.lock().await;
+                board_guard.publish(msg);
+            }
         }
     }
 

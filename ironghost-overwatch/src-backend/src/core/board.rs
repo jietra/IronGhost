@@ -102,7 +102,7 @@ impl Board {
     }
 
     // publish message to board
-    pub async fn publish(&mut self, msg: BoardMessage) {
+    pub fn publish(&mut self, msg: BoardMessage) {
 
         // add msg to board messages
         println!("[BOARD] add message from {} to board messages", msg.agent);
