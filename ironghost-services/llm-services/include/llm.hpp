@@ -26,6 +26,24 @@ struct SamplingParams {
     std::string grammar_str = "";
 };
 
+enum class GenerationStopReason {
+    Init,
+    EndOfGeneration,
+    TokenizerError,
+    MaxTokens,
+    Cancelled,
+    ContextFull,
+    DecodeError,
+    TokenToPieceError,
+    Unknown
+};
+
+struct GenerationResult {
+    std::string          output;
+    GenerationStopReason reason;
+    int32_t              generated_tokens;
+};
+
 /// @brief LLM model Class based on llama.cpp.
 /// Handle model loading, context, sampler and generation.
 class LLM {
@@ -57,14 +75,14 @@ public:
 
     /// @brief Generate response based on full prompt.
     /// @param full_prompt Full formatted prompt.
-    /// @return llm response
-    std::string run_llm(const std::string& full_prompt);
+    /// @return llm response as a GenerationResult
+    GenerationResult run_llm(const std::string& full_prompt);
 
     /// @brief Generate response based on raw user prompt.
     /// Apply chat template, call run_llm on the full prompt and update conversation history.
     /// @param user_prompt 
     /// @return llm response
-    std::string generate(const std::string& user_prompt);
+    GenerationResult generate(const std::string& user_prompt);
 
     /// @brief Reset sampler with optional parameters.
     /// Allows resetting model parameters while keeping conversation history.
@@ -139,5 +157,7 @@ private:
     void add_response(const std::string& response);
 
     std::atomic<bool> cancel_requested{false};
+
+    std::string token_to_piece(llama_token token) const;
 
 };

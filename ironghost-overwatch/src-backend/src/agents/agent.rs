@@ -30,8 +30,10 @@ use crate::knowledge_manager::{
 use crate::agents::agent_buffer::AgentBuffer;
 use crate::llm::{
     llm::LLM,
+    llm_events::GenerationOutput,
     stream_forwarder::StreamForwarder,
     response_parser::extract_json,
+    response_parser::strip_thinking,
 };
 use crate::stores::source_store::FolderTree;
 use crate::workers::dispatcher::Dispatcher;
@@ -75,7 +77,13 @@ impl Agent {
             let Some(event) = self.recv_event().await
                 else { continue; };
 
-            self.handle_event(event).await;
+            if let Err(error) = self.handle_event(event).await {
+                eprintln!(
+                    "[AGENT] ERROR [{}]: {:#}",
+                    self.name,
+                    error
+                );
+            }
         }
     }
 
@@ -98,19 +106,15 @@ impl Agent {
         }
     }
 
-    async fn handle_event( &mut self, event: BoardEvent ) {
+    async fn handle_event( &mut self, event: BoardEvent ) -> Result<()> {
 
         match event {
 
-            BoardEvent::NewMessage(msg) =>
-                self.on_message(msg).await,
-
+            BoardEvent::NewMessage(msg) =>{
+                self.on_message(msg).await?;
+            }
             BoardEvent::DispatchCommand{ mission_id, to, payload } => {
-                if let Err(e) =
-                    self.on_command(mission_id, to, payload).await {
-                        
-                        eprintln!("[AGENT] ERROR, command failed: {}", e);
-                    }
+                self.on_command(mission_id, to, payload).await?;
             }
 
             BoardEvent::StreamStart { .. }
@@ -119,36 +123,68 @@ impl Agent {
 
             _ => {}
         }
+
+        Ok(())
     }
 
-    async fn on_message( &mut self, msg: BoardMessage ) {
-        if msg.agent == self.name { return; }
+    async fn on_message( &mut self, msg: BoardMessage ) -> Result<()> {
+        if msg.agent == self.name {
+            return Ok(());
+        }
 
+        // push message to agent buffer
         self.buffer.push( msg.clone() );
 
-        if msg.content.contains(&format!("!@{}", self.name)) {
+        if !msg.content.contains(&format!("!@{}", self.name)) {
+            return Ok(())
+        }
 
             println!("[AGENT] agent {} aknowledges tag", self.name);
             
+            //---------------------------
+            // prompt
+            //---------------------------
+
             // extract prompt from buffer
             let mut prompt: String = self.buffer.flush();
 
+            // push specific message to agent
             prompt.push_str(&format!(
                 "[YOUR TURN]\nYou are {}. Respond strictly to tasks addressed to you or @All.\n{}:",
                 self.name, self.name
             ));
 
+            // DEBUG
             println!("[AGENT] prompt to be sent to llm service:\n\"{}\"\n", prompt);
 
+            //---------------------------
             // call service
-            let full_response: String = StreamForwarder::generate(
+            //---------------------------
+            
+            let agent_generation: GenerationOutput = StreamForwarder::generate(
                 &self.name,
                 &prompt,
                 &self.llm,
                 self.board.clone(),
-            ).await;
+            )
+            .await
+            .map_err(|error| {
+                anyhow!(
+                    "[AGENT] agent {} LLM generation failed: {}",
+                    self.name,
+                    error
+                )
+            })?;
+
+            let full_response: String = StreamForwarder::validate_generation(
+                &self.name,
+                agent_generation
+            )?;
             
+            //---------------------------
             // publish final output
+            //---------------------------
+
             {
                 let mut board: MutexGuard<'_, Board> = self.board.lock().await;    //
                 
@@ -158,7 +194,8 @@ impl Agent {
                     timestamp: Utc::now().timestamp_millis() as u64,
                 }).await;
             }
-        }
+        
+        Ok(())
     }
 
     async fn on_command( &mut self, mission_id: String, to: String, payload: String ) -> Result<()> {
@@ -214,9 +251,9 @@ impl Agent {
         Ok(())
     }
 
-    // ----------------------------
+    // ============================
     // mission assessment loop
-    // ----------------------------
+    // ============================
 
     async fn execute_mission_assessment( &mut self, budget: u32 ) -> Result<()> {
         
@@ -330,27 +367,39 @@ impl Agent {
         Ok(())
     }
 
-    // ----------------------------
+    // ============================
     // send to agent LLM
-    // ----------------------------
+    // ============================
 
     async fn run_assessment_round ( &mut self, assessment_context: &AssessmentContext ) -> Result<AssessmentArtifact> {
 
         let prompt: String = assessment_context.to_prompt();
 
-        let response: String =
-            StreamForwarder::generate(
-                &self.name,
-                &prompt,
-                &self.llm,
-                self.board.clone(),
-            ).await;
+        let generation: GenerationOutput = StreamForwarder::generate(
+            &self.name,
+            &prompt,
+            &self.llm,
+            self.board.clone(),
+        )
+        .await
+        .with_context(|| {
+            format!(
+                "[AGENT] agent {} generation failed",
+                self.name
+            )
+        })?;
+
+        let response: String = StreamForwarder::validate_generation(
+            &self.name,
+            generation,
+        )?;
 
         // parse response
         println!("DEBUG response: {}", &response);
 
-        let json_str: &str = extract_json(&response)
-            .ok_or_else(|| anyhow!("unable to extract json"))?;
+        //let json_str: &str = extract_json(&response)
+        //    .ok_or_else(|| anyhow!("[AGENT] unable to extract json"))?;
+        let json_str = strip_thinking(&response);
 
         // strategist output parsing
         let strategist_output: StrategistOutput =

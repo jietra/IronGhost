@@ -1,6 +1,6 @@
 mission:
   assessment:
-    budget: 2
+    budget: 5
 
 artifact_store:
   root: ./data/artifacts

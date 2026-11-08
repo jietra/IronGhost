@@ -4,11 +4,19 @@ use std::sync::Arc;
 use tokio::sync::{Mutex, MutexGuard};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 
 use crate::core::board::{Board, BoardMessage};
 use crate::core::mission::MissionNode;
 use crate::config::SystemRegistry;
-use crate::llm::{llm::LLM, stream_forwarder::StreamForwarder};
+use crate::llm::{
+    llm::LLM,
+    llm_events::{
+        GenerationOutput,
+        GenerationStopReason,
+    },
+    stream_forwarder::StreamForwarder,
+};
 
 // TODO: to be set in config params
 const MAX_RETRIES: usize = 3;
@@ -178,18 +186,35 @@ impl Dispatcher {
 
         while task_context.trial <= MAX_RETRIES {
 
+            // --------------------
             // task handling
+            // --------------------
+
             let worker_prompt     : String = task_context.to_worker_prompt();
             
-            let worker_full_output: String = StreamForwarder::generate(
+            // -> generation (worker)
+            let worker_generation: GenerationOutput = StreamForwarder::generate(
                 worker,
                 &worker_prompt,
                 &client,
                 board.clone(),
-            ).await;
+            )
+            .await
+            .map_err(|error| {
+                format!(
+                    "[DISPATCHER] worker transport error on {}: {}",
+                    socket_path,
+                    error,
+                )
+            })?;
 
-            task_context.previous_output = Some(worker_full_output.clone());
+            // -> check if valid eog
+            let worker_full_output: String = Self::validate_generation(
+                worker,
+                worker_generation,
+            )?;
 
+            // -> check if not empty
             if worker_full_output.is_empty() {
                 return Err(format!(
                     "[DISPATCHER] worker on {} did not send any content.",
@@ -197,38 +222,95 @@ impl Dispatcher {
                 ));
             }
 
+            // -> check if valid json
+            let worker_json: Value = serde_json::from_str(&worker_full_output)
+                .map_err(|error| {
+                    format!(
+                        "[DISPATCHER] worker {} returned invalid JSON: {}",
+                        worker,
+                        error,
+                    )
+                })?;
+
+            task_context.previous_output = Some(worker_full_output.clone());
+
             println!("[DISPATCHER] worker output for task [{}] transferred to sentinel {}", task, sentinel_socket);
             
+            // --------------------
             // sentinel validation
+            // --------------------
+
             let sentinel_prompt     : String = task_context.to_sentinel_prompt(&worker_full_output);
             
-            let sentinel_full_output: String = StreamForwarder::generate(
+            // -> generation
+            let sentinel_generation: GenerationOutput = StreamForwarder::generate(
                 sentinel,
                 &sentinel_prompt,
                 &sentinel_client,
                 board.clone(),
-            ).await;
-            let sentinel_verdict    : SentinelVerdict = SentinelVerdict::from_json(&sentinel_full_output)
-                .map_err(|e| format!("[DISPATCHER] failed to parse sentinel output as JSON: {}", e))?;
+            )
+            .await
+            .map_err(|error| {
+                format!(
+                    "[DISPATCHER] sentinel transport error on {}: {}",
+                    sentinel_socket,
+                    error,
+                )
+            })?;
+
+            // -> check if valid eog
+            let sentinel_full_output: String = Self::validate_generation(
+                sentinel,
+                sentinel_generation,
+            )?;
+
+            // -> valid json to SentinelVerdict struct
+            let sentinel_verdict: SentinelVerdict = SentinelVerdict::from_json(
+                &sentinel_full_output
+            )
+            .map_err(|error| {
+                format!(
+                    "[DISPATCHER] failed to parse sentinel output as JSON: {}",
+                    error,
+                )
+            })?;
 
             task_context.feedback = Some(sentinel_verdict.clone());
 
+            // -----------------------------
             // Notify final output to Board
-            let mut b: MutexGuard<'_, Board> = board.lock().await;
-            b.publish(BoardMessage {
+            // -----------------------------
+
+            let published_content: Value = json!({
+                "trial"             : task_context.trial,
+                "max_retries"       : MAX_RETRIES,
+                "task"              : task,
+                "sentinel_verdict"  : &sentinel_verdict,
+                "generated_response": &worker_json,
+            });
+            let published_content: String = serde_json::to_string_pretty(
+                &published_content
+            )
+            .map_err(|error| {
+                format!(
+                    "[DISPATCHER] failed to serialize board message: {}",
+                    error,
+                )
+            })?;
+
+            let mut board_guard: MutexGuard<'_, Board> = board.lock().await;
+            
+            board_guard.publish(BoardMessage {
                 agent    : task.into(),
-                content  : format!(
-                    "{{
-                    \"trial\": \"{}\",
-                    \"max_retries\": \"{MAX_RETRIES}\",
-                    \"task\": \"{task}\",
-                    \"sentinel_verdict\": {sentinel_full_output},
-                    \"generated_response\": {worker_full_output}
-                    }}",
-                    task_context.trial
-                ),
+                content  : published_content,
                 timestamp: Utc::now().timestamp_millis() as u64,
             }).await;
+
+            drop(board_guard);
+
+            // -----------------------------
+            // Verdict handling
+            // -----------------------------
 
             if sentinel_verdict.compliant {
                 final_output = Some(worker_full_output);
@@ -244,4 +326,29 @@ impl Dispatcher {
             None => Err(format!("[DISPATCHER] Sentinel rejected output after {} attempts", MAX_RETRIES)),
         }
     }
+
+    fn validate_generation(
+        role        : &str,
+        generation  : GenerationOutput,
+    ) -> Result<String, String> {
+        if generation.reason != GenerationStopReason::Eog {
+            return Err(format!(
+                "[DISPATCHER] {} generation stopped with reason {:?} \
+                after producing {} bytes",
+                role,
+                generation.reason,
+                generation.output.len(),
+            ));
+        }
+
+        if generation.output.trim().is_empty() {
+            return Err(format!(
+                "[DISPATCHER] {} did not send any content",
+                role,
+            ));
+        }
+
+        Ok(generation.output)
+    }
+
 }

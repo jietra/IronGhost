@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <cstring>
+#include <stdexcept>
 
 LLM::LLM(
     const std::string&  model_path,
@@ -28,7 +29,7 @@ LLM::LLM(
 
     model = llama_model_load_from_file(model_path.c_str(), mparams);
     if (!model) {
-        std::cerr << "ERROR: cannot load model: " << model_path << std::endl;
+        std::cerr << "[LLM] ERROR: cannot load model: " << model_path << std::endl;
         std::exit(1);
     }
 
@@ -38,7 +39,7 @@ LLM::LLM(
     // LLM.chat_template init
     chat_template = llama_model_chat_template(model, nullptr);
     if (chat_template.empty()) {
-        std::cerr << "Warning: model has no chat template" << std::endl;
+        std::cerr << "[LLM] Warning: model has no chat template" << std::endl;
     }
 
     // LLM.ctx (llama_context_default_params + llama_init_from_model)
@@ -49,7 +50,7 @@ LLM::LLM(
 
     ctx = llama_init_from_model(model, cparams);
     if (!ctx) {
-        std::cerr << "ERROR: cannot create llama context" << std::endl;
+        std::cerr << "[LLM] ERROR: cannot create llama context" << std::endl;
         std::exit(1);
     }
 
@@ -92,7 +93,7 @@ std::string LLM::add_and_format_prompt(const std::string& user_prompt) {
         len = llama_chat_apply_template(chat_template.c_str(), messages.data(), messages.size(), true, formatted.data(), formatted.size());
     }
     if (len < 0) {
-        std::cerr << "ERROR: failed to apply the chat template\n";
+        std::cerr << "[LLM] ERROR: failed to apply the chat template\n";
         std::exit(1);
     }
     size_t new_len = static_cast<size_t>(len);
@@ -116,7 +117,7 @@ void LLM::add_response(const std::string& response) {
     add_message("assistant", response);
     
     // format response
-    int32_t len = llama_chat_apply_template(
+    const int32_t len = llama_chat_apply_template(
         chat_template.c_str(),
         messages.data(),
         messages.size(),
@@ -125,30 +126,41 @@ void LLM::add_response(const std::string& response) {
         0
     );
     if (len < 0) {
-        std::cerr << "ERROR: failed to apply the chat template\n";
-        std::exit(1);
+        std::cerr << "[LLM] ERROR: failed to apply the chat template\n";
+        return;
     }
+
+    kv_len = static_cast<size_t>(len);
 }
 
-std::string LLM::generate(const std::string& user_prompt) {
+GenerationResult LLM::generate(const std::string& user_prompt) {
 
     // add user_prompt to the conversation history and return formatted prompt
     std::string full_prompt = add_and_format_prompt(user_prompt);
 
     // run LLM on formatted (last) prompt
-    std::string response = run_llm(full_prompt);
+    GenerationResult response = run_llm(full_prompt);
 
     // add response to messages if statefull
     if (amnesia) {
         reset_all();
+        return response;
+    }
+    
+    if (
+        response.reason == GenerationStopReason::EndOfGeneration
+    ) {
+        add_response(response.output);
     } else {
-        add_response(response);
+        // clear desynchronised KV-cache if generation failed
+        reset_context();
     }
 
     return response;
 }
 
-std::string LLM::run_llm(const std::string& full_prompt) {
+GenerationResult LLM::run_llm(const std::string& full_prompt) {
+    // Tokenize prompt, batch, loop with decode
 
     // interruption management
     clear_cancel();
@@ -156,13 +168,18 @@ std::string LLM::run_llm(const std::string& full_prompt) {
     // replace grammar at root (when !amnesia)
     llama_sampler_reset(sampler);
 
-    // Tokenize prompt, batch, loop with decode
+    // prepare result
+    GenerationResult result  = GenerationResult {
+        "",
+        GenerationStopReason::Init,
+        0
+    };
 
     // KV cache init test: test if first prompt
     const bool is_first = kv_len_token == 0;
 
     // --- Tokenize formatted last prompt ---
-    int32_t n_prompt_tokens = -llama_tokenize(
+    const int32_t token_count = llama_tokenize(
         vocab,
         full_prompt.c_str(),
         full_prompt.size(),
@@ -172,6 +189,14 @@ std::string LLM::run_llm(const std::string& full_prompt) {
         true
     );
 
+    if (token_count >= 0) {
+        result.reason = GenerationStopReason::TokenizerError;
+        std::cerr << "[LLM] ERROR: Unexpected tokenizer sizing result" << std::endl;
+        return result;
+    }
+
+    const int32_t n_prompt_tokens = -token_count;
+
     std::vector<llama_token> tokens(n_prompt_tokens);
 
     if (llama_tokenize(
@@ -179,47 +204,49 @@ std::string LLM::run_llm(const std::string& full_prompt) {
         full_prompt.c_str(),
         full_prompt.size(),
         tokens.data(),
-        tokens.size(),
+        static_cast<int32_t>(tokens.size()),
         is_first,
         true
     ) < 0) {
-        std::cerr << "ERROR: failed to tokenize prompt" << std::endl;
-        std::exit(1);
+        result.reason = GenerationStopReason::TokenizerError;
+        std::cerr << "[LLM] ERROR: failed to tokenize prompt" << std::endl;
+        return result;
     }
 
     // --- Prepare batch ---
     llama_batch batch = llama_batch_get_one(
         tokens.data(),
-        tokens.size()
+        static_cast<int32_t>(tokens.size())
     );
-    llama_token new_token_id;
-    std::string output;
-    std::string utf8_buffer;
 
     // --- Entering loop ---
-    int32_t generated_tokens = 0;
-
-    while (generated_tokens < sampling_params.max_tokens) {
+    llama_token new_token_id = LLAMA_TOKEN_NULL;    // must outlive every batch that points to it
+    
+    while (result.generated_tokens < sampling_params.max_tokens) {
 
         if (cancel_requested.load(std::memory_order_relaxed)) {
+            result.reason = GenerationStopReason::Cancelled;
             std::cerr << "[LLM] Generation cancelled\n";
             break;
         }
         
         // check available context space
         if (kv_len_token + batch.n_tokens > n_ctx) {
-            std::cerr << "WARNING: context size exceeded. Consider cropping messages." << std::endl;
-            std::exit(1);
+            result.reason = GenerationStopReason::ContextFull;
+            std::cerr << "[LLM] WARNING: context size exceeded. Consider cropping messages." << std::endl;
+            break;
         }
         // TODO: create a method to crop messages: crop_messages(n_messages), or automatic cropping, or auto summurize.
 
         // --- Eval prompt ---
         const int32_t ret = llama_decode(ctx, batch);
         if (ret != 0) {
-                throw std::runtime_error(
-                "ERROR: llama_decode failed with ret = "
-                + std::to_string(ret)
-            );
+                result.reason = GenerationStopReason::DecodeError;
+                std::cerr
+                    << "[LLM] ERROR: llama_decode failed with ret = "
+                    << std::to_string(ret)
+                    << std::endl;
+                break;
         }
 
         // update kv_len_token according to new KV-cache state
@@ -230,38 +257,31 @@ std::string LLM::run_llm(const std::string& full_prompt) {
 
         // --- EOG? ---
         if (llama_vocab_is_eog(vocab, new_token_id)) {
+            result.reason = GenerationStopReason::EndOfGeneration;
             break;
         }
 
-        /*
-        // Advance grammar state and sampler history.   // Issue with "{": breaks gbnf for JSON outputs
-        llama_sampler_accept(
-            sampler,
-            new_token_id
-        );
-        */
-
-        ++generated_tokens;
+        // update generated_tokens
+        ++result.generated_tokens;
 
         // --- Convert token to string ---
-        char buf[256];
-        int32_t  n = llama_token_to_piece(
-            vocab,
-            new_token_id,
-            buf,
-            sizeof(buf),
-            0,
-            true
-        );
-        if (n < 0) {
-            throw std::runtime_error(
-                "ERROR: failed to convert token to piece"
+        std::string piece;
+
+        try {
+            piece = token_to_piece(
+                new_token_id
             );
+        } catch (const std::exception& error) {
+            result.reason = GenerationStopReason::TokenToPieceError;
+            std::cerr
+                << "[LLM] ERROR: "
+                << error.what()
+                << std::endl;
+            break;
         }
-        const std::string piece(
-            buf,
-            static_cast<size_t>(n)
-        );
+
+        // update output
+        result.output += piece;
 
         // stream to console (server side) (for debug)
         std::cout << piece << std::flush;
@@ -270,21 +290,39 @@ std::string LLM::run_llm(const std::string& full_prompt) {
         if (stream_callback) {
             stream_callback(piece);
         }
-        
-        output += piece;
+
+        // the callback may have detected a broken socket and requested cancellation.
+        if (cancel_requested.load(
+            std::memory_order_relaxed
+        )) {
+            result.reason = GenerationStopReason::Cancelled;
+            break;
+        }
 
         // prepare next batch with sampled token
         batch = llama_batch_get_one(&new_token_id, 1);
     }
 
-    if (generated_tokens >= sampling_params.max_tokens) {
+    if (
+        result.reason == GenerationStopReason::Init &&
+        result.generated_tokens >= sampling_params.max_tokens
+    ) {
+        result.reason = GenerationStopReason::MaxTokens;
         std::cerr
             << "[LLM] Maximum generated-token limit reached: "
             << sampling_params.max_tokens
-            << '\n';
+            << std::endl;
     }
 
-    return output;
+    // defensive fallback
+    if (result.reason == GenerationStopReason::Init) {
+        std::cerr
+            << "[LLM] WARNING: generation stopped for an unknown reason"
+            << std::endl;
+        result.reason = GenerationStopReason::Unknown;
+    }
+
+    return result;
 }
 
 void LLM::reset_sampler(const SamplingParams & params) {
@@ -307,15 +345,20 @@ void LLM::reset_sampler(const SamplingParams & params) {
             "root"                              // rule entry point in GBNF file
         );
 
-        if (grammar_sampler != nullptr) {
-            llama_sampler_chain_add(sampler, grammar_sampler);
-            std::cout << "[SAMPLER] GBNF grammar successfuly loaded." << std::endl;
+        if (!grammar_sampler) {
+            throw std::runtime_error(
+                "[SAMPLER] failed to initialize grammar sampler"
+            );
         }
+
+        llama_sampler_chain_add(sampler, grammar_sampler);
+        std::cout << "[SAMPLER] GBNF grammar successfuly loaded." << std::endl;
     }
 
     //      1. init penalties first (especially relevant for SLMs)
-    int32_t n_vocab = llama_vocab_n_tokens(vocab);
-    llama_sampler_chain_add(sampler,
+    const int32_t n_vocab = llama_vocab_n_tokens(vocab);
+    llama_sampler_chain_add(
+        sampler,
         llama_sampler_init_penalties(
             n_vocab,
             sampling_params.penalty_last_n,
@@ -325,11 +368,7 @@ void LLM::reset_sampler(const SamplingParams & params) {
         )
     );
     
-    //      2. init temp (adjust probability curve)
-    llama_sampler_chain_add(sampler,
-        llama_sampler_init_temp(sampling_params.temperature));
-    
-    //      3. Filtering/Cropping (set tail-tokens to 0)
+    //      2. Filtering/Cropping (set tail-tokens to 0)
     llama_sampler_chain_add(sampler,
         llama_sampler_init_top_k(sampling_params.top_k));
     llama_sampler_chain_add(sampler,
@@ -337,6 +376,10 @@ void LLM::reset_sampler(const SamplingParams & params) {
     llama_sampler_chain_add(sampler,
         llama_sampler_init_min_p(sampling_params.min_p, 1));
     
+    //      3. init temp (adjust probability curve)
+    llama_sampler_chain_add(sampler,
+        llama_sampler_init_temp(sampling_params.temperature));
+
     //      4. Distribution last
     llama_sampler_chain_add(sampler,
         llama_sampler_init_dist(sampling_params.seed));
@@ -388,4 +431,43 @@ void LLM::reset_context() {
 
     reset_sampler(sampling_params);
     reset_kv_cache();
+}
+
+std::string LLM::token_to_piece(
+    llama_token token
+) const {
+    std::vector<char> buffer(256);
+
+    int32_t n = llama_token_to_piece(
+        vocab,
+        token,
+        buffer.data(),
+        static_cast<int32_t>(buffer.size()),
+        0,
+        true
+    );
+
+    if (n < 0) {
+        buffer.resize(static_cast<size_t>(-n));
+
+        n = llama_token_to_piece(
+            vocab,
+            token,
+            buffer.data(),
+            static_cast<int32_t>(buffer.size()),
+            0,
+            true
+        );
+    }
+
+    if (n < 0) {
+        throw std::runtime_error(
+            "llama_token_to_piece failed after resizing buffer for token"
+        );
+    }
+
+    return std::string(
+        buffer.data(),
+        static_cast<size_t>(n)
+    );
 }
