@@ -5,7 +5,13 @@ use std::collections::HashSet;
 use anyhow::{ensure, Result};
 use serde::{Serialize, Deserialize};
 
-use crate::{knowledge::claim::KnowledgeClaim, knowledge_manager::card_extractor::ConceptRef, observation::observation::ObserverOutput};
+use crate::{
+    knowledge::{
+        claim::KnowledgeClaim,
+        concept::ConceptRef,
+    },
+    observation::observation::ObserverOutput
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct KnowledgeCard {

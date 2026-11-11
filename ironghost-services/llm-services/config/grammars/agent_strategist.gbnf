@@ -1,0 +1,285 @@
+root ::= strategist-output
+
+strategist-output ::= (
+    "{"
+    ws
+    "\"assessment_report\""
+    ws ":" ws
+    json-string
+    ws "," ws
+    "\"next_move\""
+    ws ":" ws
+    next-move
+    ws "," ws
+    "\"mission_graph\""
+    ws ":" ws
+    nullable-mission-graph
+    ws
+    "}"
+)
+
+# --------------------------------------------------
+# Next move
+# --------------------------------------------------
+
+next-move ::= (
+      folder-explorer-move
+    | file-reader-move
+    | web-searcher-move
+    | web-reader-move
+    | ask-context-move
+    | finish-move
+)
+
+folder-explorer-move ::= (
+    "{"
+    ws
+    "\"intention\""
+    ws ":" ws
+    json-string
+    ws "," ws
+    "\"action\""
+    ws ":" ws
+    "\"FolderExplorer\""
+    ws "," ws
+    "\"target\""
+    ws ":" ws
+    "null"
+    ws
+    "}"
+)
+
+file-reader-move ::= (
+    "{"
+    ws
+    "\"intention\""
+    ws ":" ws
+    json-string
+    ws "," ws
+    "\"action\""
+    ws ":" ws
+    "\"FileReader\""
+    ws "," ws
+    "\"target\""
+    ws ":" ws
+    json-string
+    ws
+    "}"
+)
+
+web-searcher-move ::= (
+    "{"
+    ws
+    "\"intention\""
+    ws ":" ws
+    json-string
+    ws "," ws
+    "\"action\""
+    ws ":" ws
+    "\"WebSearcher\""
+    ws "," ws
+    "\"target\""
+    ws ":" ws
+    json-string
+    ws
+    "}"
+)
+
+web-reader-move ::= (
+    "{"
+    ws
+    "\"intention\""
+    ws ":" ws
+    json-string
+    ws "," ws
+    "\"action\""
+    ws ":" ws
+    "\"WebReader\""
+    ws "," ws
+    "\"target\""
+    ws ":" ws
+    json-string
+    ws
+    "}"
+)
+
+ask-context-move ::= (
+    "{"
+    ws
+    "\"intention\""
+    ws ":" ws
+    json-string
+    ws "," ws
+    "\"action\""
+    ws ":" ws
+    "\"AskForMoreContext\""
+    ws "," ws
+    "\"target\""
+    ws ":" ws
+    json-string
+    ws
+    "}"
+)
+
+finish-move ::= (
+    "{"
+    ws
+    "\"intention\""
+    ws ":" ws
+    json-string
+    ws "," ws
+    "\"action\""
+    ws ":" ws
+    "\"Finish\""
+    ws "," ws
+    "\"target\""
+    ws ":" ws
+    "null"
+    ws
+    "}"
+)
+
+# --------------------------------------------------
+# Mission graph
+# --------------------------------------------------
+
+nullable-mission-graph ::= "null" | mission-graph
+
+mission-graph ::= (
+    "{"
+    ws
+    "\"nodes\""
+    ws ":" ws
+    mission-node-array
+    ws "," ws
+    "\"edges\""
+    ws ":" ws
+    mission-edge-array
+    ws
+    "}"
+)
+
+# --------------------------------------------------
+# Mission nodes
+# --------------------------------------------------
+
+mission-node-array ::= (
+      "[" ws "]"
+    | "[" ws mission-node-list ws "]"
+)
+
+mission-node-list ::= (
+    mission-node
+    (
+        ws "," ws mission-node
+    )*
+)
+
+mission-node ::= (
+    "{"
+    ws
+    "\"id\""
+    ws ":" ws
+    json-string
+    ws "," ws
+    "\"kind\""
+    ws ":" ws
+    mission-node-kind
+    ws "," ws
+    "\"title\""
+    ws ":" ws
+    json-string
+    ws "," ws
+    "\"description\""
+    ws ":" ws
+    nullable-json-string
+    ws "," ws
+    "\"worker\""
+    ws ":" ws
+    nullable-worker
+    ws
+    "}"
+)
+
+mission-node-kind ::= (
+      "\"goal\""
+    | "\"subgoal\""
+    | "\"task\""
+    | "\"asset\""
+    | "\"vuln\""
+    | "\"risk\""
+)
+
+nullable-worker ::= (
+      "null"
+    | "\"coder\""
+    | "\"code_inspector\""
+)
+
+# --------------------------------------------------
+# Mission edges
+# --------------------------------------------------
+
+mission-edge-array ::= (
+      "[" ws "]"
+    | "[" ws mission-edge-list ws "]"
+)
+
+mission-edge-list ::= (
+    mission-edge
+    (
+        ws "," ws mission-edge
+    )*
+)
+
+mission-edge ::= (
+    "{"
+    ws
+    "\"from\""
+    ws ":" ws
+    json-string
+    ws "," ws
+    "\"to\""
+    ws ":" ws
+    json-string
+    ws "," ws
+    "\"relation\""
+    ws ":" ws
+    edge-relation
+    ws
+    "}"
+)
+
+edge-relation ::= (
+      "\"enables\""
+    | "\"verifies\""
+    | "\"investigates\""
+    | "\"affects\""
+    | "\"mitigates\""
+    | "\"supports\""
+)
+
+# --------------------------------------------------
+# JSON primitives
+# --------------------------------------------------
+
+nullable-json-string ::= "null" | json-string
+
+json-string ::= (
+    "\""
+    json-character*
+    "\""
+)
+
+json-character ::= (
+      [^"\\\x00-\x1F]
+    | "\\"
+      (
+          ["\\/bfnrt]
+        | "u" hex-digit hex-digit hex-digit hex-digit
+      )
+)
+
+hex-digit ::= [0-9a-fA-F]
+
+ws ::= [ \t\n\r]*

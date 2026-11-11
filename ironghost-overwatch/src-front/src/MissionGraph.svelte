@@ -3,7 +3,7 @@
   import ForceGraph, { type NodeObject } from 'force-graph';
 
   // 1. TypeScript interfaces for tactical graph
-  interface GraphNode {
+  interface MissionGraphNode {
     id          : string;
     title       : string;
     kind        : 'goal' | 'subgoal' | 'task' | 'asset' | 'vuln' | 'risk';
@@ -11,15 +11,15 @@
     worker?     : string | null;
   }
 
-  interface GraphEdge {
+  interface MissionGraphEdge {
     from    : string;
     to      : string;
     relation: string;
   }
 
   interface MissionGraphData {
-    nodes: GraphNode[];
-    edges: GraphEdge[];
+    nodes: MissionGraphNode[];
+    edges: MissionGraphEdge[];
   }
 
   // Extend NodeObject type
@@ -100,21 +100,24 @@
       .nodeVal('val')
       .nodeLabel((node: any) => {
         const n = node as CustomNode;
+        const safeName = escapeHtml(n.name);
+        const safeDescription = n.description? escapeHtml(n.description): null;
+        const safeWorker = n.worker? escapeHtml(n.worker): null;
 
-        const description = n.description
+        const description = safeDescription
           ? `<div style="
               margin-top: 5px;
               max-width: 320px;
               color: #cbd5e1;
               line-height: 1.35;
-            ">${n.description}</div>`
+            ">${safeDescription}</div>`
           : '';
 
-        const worker = n.worker
+        const worker = safeWorker
           ? `<div style="
               margin-top: 5px;
               color: #94a3b8;
-            ">Worker: <strong>${n.worker}</strong></div>`
+            ">Worker: <strong>${safeWorker}</strong></div>`
           : '';
           
         return `
@@ -131,7 +134,7 @@
             <strong style="color: ${KIND_COLORS[n.kind] || '#00f0ff'};">
               [${n.kind.toUpperCase()}]
             </strong>
-            ${n.name}
+            ${safeName}
             ${description}
             ${worker}
           </div>
@@ -222,6 +225,15 @@
       }, 300);
     }
   });
+
+  function escapeHtml(value: string): string {
+    return value
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#039;');
+  }
 </script>
 
 <style>

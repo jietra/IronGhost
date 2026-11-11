@@ -807,9 +807,6 @@ Required fields:
 - id
 - kind
 - title
-
-Optional fields:
-
 - description
 - worker
 
@@ -821,6 +818,11 @@ Do NOT use:
 - text
 
 as substitutes for title.
+
+Every node MUST have exactly:
+id, kind, title, description, worker.
+
+Use null for description or worker when absent.
 
 NODE KINDS:
 

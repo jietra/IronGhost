@@ -319,6 +319,17 @@ impl Dispatcher {
 
             task_context.trial += 1;
 
+            //
+            // [TEST/DEBUG] Fallback: for testing and debugging purposes only
+            //
+            if task_context.trial > MAX_RETRIES && !sentinel_verdict.compliant {
+                final_output = Some(worker_full_output);
+                /*
+                * TODO: add sentinel comment in observer output
+                */
+                println!("[DISPATCHER - TEST/DEBUG] Sentinel rejected output after {} attempts", MAX_RETRIES);
+            }
+
         }
 
         match final_output {

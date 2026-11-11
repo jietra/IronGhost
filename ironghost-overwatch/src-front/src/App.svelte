@@ -1,15 +1,14 @@
 <script lang="ts">
-  import { onMount }  from "svelte";
-  import Message      from "./Message.svelte";
-  import MissionGraph from "./MissionGraph.svelte";
+  import { onMount }    from "svelte";
+  import Message        from "./Message.svelte";
+  import MissionGraph   from "./MissionGraph.svelte";
+  import KnowledgeGraph from "./KnowledgeGraph.svelte";
 
   // Define TypeScript interfaces
   interface MessageItem {
     agent     : string;
     content   : string;
     timestamp : number;
-    //severity  : string;
-    //msg_id?   : string;
   }
 
   interface GraphData {
@@ -24,12 +23,16 @@
     timestamp : number;
   }
 
-  let messages      : MessageItem[]                     = $state([]);
-  let container     : HTMLDivElement | undefined        = $state();
-  let draft         : string                            = $state("");
-  let ws            : WebSocket | undefined             = $state();
-  let mission_graph : GraphData                         = $state({ nodes: [], edges: [] });
-  let activeStreams : Record<string, ActiveStreamItem>  = $state({});
+  type GraphView = 'mission' | 'knowledge';
+
+  let messages        : MessageItem[]                     = $state([]);
+  let container       : HTMLDivElement | undefined        = $state();
+  let draft           : string                            = $state("");
+  let ws              : WebSocket | undefined             = $state();
+  let graphView       : GraphView                         = $state('mission');
+  let mission_graph   : GraphData                         = $state({ nodes: [], edges: [] });
+  let knowledge_graph : GraphData                         = $state({ nodes: [], edges: [] });
+  let activeStreams   : Record<string, ActiveStreamItem>  = $state({});
 
   function isGraphData(value: unknown): value is GraphData {
     return (
@@ -62,10 +65,21 @@
 
           case "mission_state":
             if (isGraphData(data.payload)) {
-              mission_graph = data.payload;
+              mission_graph = data.payload;// as MissionGraphData;
             } else {
               console.warn(
                 "Invalid mission graph payload:",
+                data.payload
+              );
+            }
+            break;
+
+          case "knowledge_graph_state":
+            if (isGraphData(data.payload)) {
+              knowledge_graph = data.payload;// as KnowledgeGraphData;
+            } else {
+              console.warn(
+                "Invalid knowledge graph payload:",
                 data.payload
               );
             }
@@ -326,6 +340,90 @@
     font-weight    : 700;
     letter-spacing : 1px;
   }
+
+  .graph-header {
+    min-height      : 42px;
+    display         : flex;
+    align-items     : center;
+    justify-content : space-between;
+    gap             : 12px;
+    padding         : 0 14px;
+    border-bottom   : 1px solid
+                      rgba(255, 255, 255, 0.06);
+    background      : rgba(8, 12, 22, 0.92);
+  }
+
+  .graph-tabs {
+    align-self : stretch;
+    display    : flex;
+    align-items: stretch;
+    gap        : 4px;
+  }
+
+  .graph-tabs button {
+    position      : relative;
+    display       : flex;
+    align-items   : center;
+    gap           : 7px;
+    padding       : 0 11px;
+    border        : none;
+    color         : #64748b;
+    background    : transparent;
+    font-family   : inherit;
+    font-size     : 0.68rem;
+    font-weight   : 700;
+    letter-spacing: 0.8px;
+    cursor        : pointer;
+  }
+
+  .graph-tabs button::after {
+    content   : "";
+    position  : absolute;
+    right     : 8px;
+    bottom    : 0;
+    left      : 8px;
+    height    : 2px;
+    background: transparent;
+  }
+
+  .graph-tabs button:hover {
+    color: #cbd5e1;
+  }
+
+  .graph-tabs button.active {
+    color: #67e8f9;
+  }
+
+  .graph-tabs button.active::after {
+    background:
+      linear-gradient(
+        90deg,
+        #00f0ff,
+        #a855f7
+      );
+
+    box-shadow:
+      0 0 8px
+      rgba(0, 240, 255, 0.55);
+  }
+
+  .tab-count {
+    min-width      : 16px;
+    padding        : 1px 5px;
+    border-radius  : 9px;
+    color          : #94a3b8;
+    background     : rgba(148, 163, 184, 0.08);
+    font-size      : 0.56rem;
+    letter-spacing : 0;
+    text-align     : center;
+  }
+
+  .graph-live-state {
+    color         : #475569;
+    font-size     : 0.62rem;
+    font-weight   : 700;
+    letter-spacing: 0.7px;
+  }
 </style>
 
 <div class="cyber-app">
@@ -341,7 +439,13 @@
     </div>
     <div class="status-badge">
       <span class="dot"></span>
-      AGENTS ACTIVE ({mission_graph.nodes.length} NODES)
+      <span>
+        MISSION
+        ({mission_graph.nodes.length} NODES)
+        ·
+        KNOWLEDGE
+        ({knowledge_graph.nodes.length} NODES)
+      </span>
     </div>
   </header>
 
@@ -385,17 +489,61 @@
 
     <!-- Right Panel: Graph -->
     <div class="right">
-      <div class="panel-header">
-        <span>MISSION TOPOLOGY</span>
-        <span>REALTIME GRAPH</span>
+      <div class="graph-header">
+        <div class="graph-tabs" role="tablist" aria-label="Graph view">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={  graphView === 'mission'   }
+            class:active={   graphView === 'mission'   }
+            onclick={() => { graphView  =  'mission'; }}
+          >
+            MISSION
+
+            <span class="tab-count">
+              {mission_graph.nodes.length}
+            </span>
+
+          </button>
+
+          <button
+            type="button"
+            role="tab"
+            aria-selected={  graphView === 'knowledge'   }
+            class:active={   graphView === 'knowledge'   }
+            onclick={() => { graphView  =  'knowledge'; }}
+          >
+            KNOWLEDGE
+
+            <span class="tab-count">
+              {knowledge_graph.nodes.length}
+            </span>
+            
+          </button>
+        </div>
+
+        <span class="graph-live-state">
+          REALTIME GRAPH
+        </span>
       </div>
       <div class="graph-wrapper">
-        {#if mission_graph.nodes.length > 0}
-          <MissionGraph mission_graph={mission_graph} />
+        {#if graphView === 'mission'}
+          {#if mission_graph.nodes.length > 0}
+            <MissionGraph mission_graph={mission_graph} />
+          {:else}
+            <div class="empty-graph">
+              MISSION GRAPH NOT YET AVAILABLE
+            </div>
+          {/if}
+
         {:else}
-          <div class="empty-graph">
-            MISSION GRAPH NOT YET AVAILABLE
-          </div>
+          {#if knowledge_graph.nodes.length > 0}
+            <KnowledgeGraph knowledge_graph={knowledge_graph}/>
+          {:else}
+            <div class="empty-graph">
+              KNOWLEDGE GRAPH NOT YET AVAILABLE
+            </div>
+          {/if}
         {/if}
       </div>
     </div>

@@ -12,6 +12,7 @@ use crate::{
         Mission,
         MissionGraph
     },
+    knowledge_graph::KnowledgeGraph,
 };
 
 pub struct Board {
@@ -74,6 +75,12 @@ pub enum BoardEvent {
     #[serde(rename = "mission_state")]
     MissionState(
         MissionGraph
+    ),
+
+    // mission knowledge graph:
+    #[serde(rename = "knowledge_graph_state")]
+    KnowledgeGraphState(
+        KnowledgeGraph
     ),
 
     // knowledge events:
@@ -162,24 +169,5 @@ impl Board {
             .knowledge
             .source_tree_list = tree;
     }
-
-
-
-
-/*
-    // ------
-
-    pub fn current_mission_id( &self ) -> Option<&str> {
-        Some(&self.mission.id)
-    }
-
-    pub fn current_mission_prompt( &self ) -> Option<&str> {
-        Some(&self.mission.prompt)
-    }
-    
-    pub fn get_source_tree_list( &self ) -> Option<&str> {
-        Some(&self.mission.knowledge.source_tree_list)
-    }
-    */
 
 }

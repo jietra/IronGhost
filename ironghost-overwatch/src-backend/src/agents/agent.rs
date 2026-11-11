@@ -3,16 +3,16 @@
 use std::sync::Arc;
 use tokio::sync::{
     Mutex,
-    broadcast::{Receiver, error::RecvError},
+    broadcast::{Receiver, error::RecvError, Sender},
     MutexGuard
 };
 use chrono::Utc;
 use anyhow::{Context, Result, anyhow};
 
-use crate::{core::{
+use crate::core::{
     board::{Board, BoardEvent, BoardMessage},
     mission::{Mission, MissionGraph},
-}, knowledge::card::KnowledgeCardDraft};
+};
 use crate::assessment::{
     context::AssessmentContext,
     assessment::{AssessmentArtifact, StrategistOutput},
@@ -20,12 +20,17 @@ use crate::assessment::{
 };
 use crate::observation::observation::ObserverOutput;
 use crate::knowledge::{
-    card::KnowledgeCard,
+    card::{KnowledgeCard, KnowledgeCardDraft},
+    concept::ConceptRef,
     mission_knowledge::MissionKnowledge
 };
 use crate::knowledge_manager::{
-    card_extractor::{ConceptRef, extract_observer_concepts},
-    card_prompt::build_card_upsert_prompt
+    card_extractor::extract_observer_concepts,
+    card_prompt::build_card_upsert_prompt,
+};
+use crate::knowledge_graph::{
+    KnowledgeGraphBuilder,
+    KnowledgeGraph,
 };
 use crate::agents::agent_buffer::AgentBuffer;
 use crate::llm::{
@@ -309,39 +314,58 @@ impl Agent {
             }
 
             // 5. Update board: persist a consistent knowledge snapshot (update assessment result AND knowledge)
-            let graph_event: Option<MissionGraph> = {
+            let (
+                mission_graph_event,
+                knowledge_snapshot,
+                tx,
+            ) = {
                 let mut board: MutexGuard<'_, Board> = self.board.lock().await;
-                let knowledge: &mut MissionKnowledge = &mut board.mission.knowledge;
+                //let knowledge: &mut MissionKnowledge = &mut board.mission.knowledge;
 
                 // cards update
-                for card in updated_cards { knowledge.upsert_card(card)?; }
+                for card in updated_cards { board.mission.knowledge.upsert_card(card)?; }
 
                 // assessment update
-                knowledge.current_assessment = Some(current_assessment.clone());
+                board.mission.knowledge.current_assessment = Some(current_assessment.clone());
 
-                if let Some(mission_graph) =
-                    current_assessment.mission_graph.as_ref()
-                {
-                    board.mission.graph = mission_graph.clone();
-                    //let _ = board.tx.send(BoardEvent::MissionState(mission_graph.clone()));
-                    Some(mission_graph.clone())
-                } else {
-                    None
-                }
+                let mission_graph_event: Option<MissionGraph> = current_assessment
+                    .mission_graph
+                    .as_ref()
+                    .map(|mission_graph| {
+                        board.mission.graph = mission_graph.clone();
+
+                        mission_graph.clone()
+                    });
+
+                let knowledge_snapshot: MissionKnowledge = board.mission.knowledge.clone();
+                let tx: Sender<BoardEvent> = board.tx.clone();
+                (
+                    mission_graph_event,
+                    knowledge_snapshot,
+                    tx,
+                )
             };
 
-            if let Some(graph) = graph_event {
-                let board: MutexGuard<'_, Board> = self.board.lock().await;
-                if let Err(error) = board.tx.send(
-                    BoardEvent::MissionState(
-                        graph
-                    )
+            let knowledge_graph: KnowledgeGraph = KnowledgeGraphBuilder::build(&knowledge_snapshot);
+
+            if let Some(graph) = mission_graph_event {
+                if let Err(error) = tx.send(
+                    BoardEvent::MissionState(graph)
                 ) {
                     eprintln!(
                         "[AGENT] WARNING: failed to publish MissionState: {}",
                         error
                     );
                 }
+            }
+
+            if let Err(error) = tx.send(
+                BoardEvent::KnowledgeGraphState(knowledge_graph)
+            ) {
+                eprintln!(
+                    "[AGENT] WARNING: failed to publish KnowledgeGraphState: {}",
+                    error
+                );
             }
             
             // 6. Execute next move

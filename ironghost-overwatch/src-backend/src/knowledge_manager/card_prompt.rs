@@ -3,9 +3,10 @@
 use anyhow::{Context, Result};
 
 use crate::observation::observation::ObserverOutput;
-use crate::knowledge::card::KnowledgeCard;
-
-use super::card_extractor::ConceptRef;
+use crate::knowledge::{
+    card::KnowledgeCard,
+    concept::ConceptRef
+};
 
 pub fn build_card_upsert_prompt(
     mission_prompt  : &str,

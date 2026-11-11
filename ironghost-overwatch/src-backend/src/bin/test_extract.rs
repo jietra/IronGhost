@@ -1,6 +1,6 @@
 // src/bin/test_web_reader.rs
 
-use backend::knowledge_manager::card_extractor::extract_concepts;
+use backend::knowledge::concept::extract_concepts;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
